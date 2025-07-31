@@ -192,6 +192,27 @@ router.post(
 );
 
 /**
+ * ARES Routes
+ */
+router.get(
+  '/ares',
+  passport.authenticate('ares', {
+    session: false,
+  }),
+);
+
+router.get(
+  '/ares/callback',
+  passport.authenticate('ares', {
+    failureRedirect: `${domains.client}/oauth/error`,
+    failureMessage: true,
+    session: false,
+  }),
+  setBalanceConfig,
+  oauthHandler,
+);
+
+/**
  * SAML Routes
  */
 router.get(

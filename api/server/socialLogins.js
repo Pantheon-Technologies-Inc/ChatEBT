@@ -7,6 +7,7 @@ const {
   discordLogin,
   facebookLogin,
   appleLogin,
+  aresLogin,
   setupSaml,
   openIdJwtLogin,
 } = require('~/strategies');
@@ -36,6 +37,9 @@ const configureSocialLogins = async (app) => {
   }
   if (process.env.APPLE_CLIENT_ID && process.env.APPLE_PRIVATE_KEY_PATH) {
     passport.use(appleLogin());
+  }
+  if (process.env.ARES_CLIENT_ID && process.env.ARES_CLIENT_SECRET) {
+    passport.use(aresLogin());
   }
   if (
     process.env.OPENID_CLIENT_ID &&

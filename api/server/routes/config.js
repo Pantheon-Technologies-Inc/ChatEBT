@@ -66,6 +66,10 @@ router.get('/', async function (req, res) {
         !!process.env.APPLE_TEAM_ID &&
         !!process.env.APPLE_KEY_ID &&
         !!process.env.APPLE_PRIVATE_KEY_PATH,
+      aresLoginEnabled: !!process.env.ARES_CLIENT_ID && !!process.env.ARES_CLIENT_SECRET,
+      aresLabel: process.env.ARES_BUTTON_LABEL || 'Continue with ARES',
+      aresImageUrl: process.env.ARES_IMAGE_URL,
+      aresAutoRedirect: isEnabled(process.env.ARES_AUTO_REDIRECT),
       openidLoginEnabled: isOpenIdEnabled,
       openidLabel: process.env.OPENID_BUTTON_LABEL || 'Continue with OpenID',
       openidImageUrl: process.env.OPENID_IMAGE_URL,

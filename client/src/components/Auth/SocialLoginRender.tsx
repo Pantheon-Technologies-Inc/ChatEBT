@@ -115,6 +115,23 @@ function SocialLoginRender({
         id="saml"
       />
     ),
+    ares: startupConfig.aresLoginEnabled && !startupConfig.aresAutoRedirect && (
+      <SocialButton
+        key="ares"
+        enabled={startupConfig.aresLoginEnabled}
+        serverDomain={startupConfig.serverDomain}
+        oauthPath="ares"
+        Icon={() =>
+          startupConfig.aresImageUrl ? (
+            <img src={startupConfig.aresImageUrl} alt="ARES Logo" className="h-5 w-5" />
+          ) : (
+            <img src="/assets/ares_icon.png" alt="ARES Logo" className="h-5 w-5" />
+          )
+        }
+        label={startupConfig.aresLabel || 'Continue with ARES'}
+        id="ares"
+      />
+    ),
   };
 
   return (

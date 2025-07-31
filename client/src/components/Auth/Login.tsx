@@ -31,42 +31,75 @@ function Login() {
     }
   }, [disableAutoRedirect, searchParams, setSearchParams]);
 
-  // Determine whether we should auto-redirect to OpenID.
-  const shouldAutoRedirect =
+  // Determine whether we should auto-redirect to OpenID or ARES.
+  const shouldAutoRedirectOpenID =
     startupConfig?.openidLoginEnabled &&
     startupConfig?.openidAutoRedirect &&
     startupConfig?.serverDomain &&
     !isAutoRedirectDisabled;
 
+  const shouldAutoRedirectARES =
+    startupConfig?.aresLoginEnabled &&
+    startupConfig?.aresAutoRedirect &&
+    startupConfig?.serverDomain &&
+    !isAutoRedirectDisabled;
+
+  const shouldAutoRedirect = shouldAutoRedirectOpenID || shouldAutoRedirectARES;
+
   useEffect(() => {
-    if (shouldAutoRedirect) {
+    if (shouldAutoRedirectOpenID) {
       console.log('Auto-redirecting to OpenID provider...');
       window.location.href = `${startupConfig.serverDomain}/oauth/openid`;
+    } else if (shouldAutoRedirectARES) {
+      console.log('Auto-redirecting to ARES provider...');
+      window.location.href = `${startupConfig.serverDomain}/oauth/ares`;
     }
-  }, [shouldAutoRedirect, startupConfig]);
+  }, [shouldAutoRedirectOpenID, shouldAutoRedirectARES, startupConfig]);
 
   // Render fallback UI if auto-redirect is active.
   if (shouldAutoRedirect) {
+    const redirectConfig = shouldAutoRedirectARES
+      ? {
+          label: startupConfig.aresLabel,
+          imageUrl: startupConfig.aresImageUrl,
+          path: 'ares',
+          id: 'ares',
+          enabled: startupConfig.aresLoginEnabled,
+          Icon: () =>
+            startupConfig.aresImageUrl ? (
+              <img src={startupConfig.aresImageUrl} alt="ARES Logo" className="h-5 w-5" />
+            ) : (
+              <img src="/assets/ares_icon.png" alt="ARES Logo" className="h-5 w-5" />
+            ),
+        }
+      : {
+          label: startupConfig.openidLabel,
+          imageUrl: startupConfig.openidImageUrl,
+          path: 'openid',
+          id: 'openid',
+          enabled: startupConfig.openidLoginEnabled,
+          Icon: () =>
+            startupConfig.openidImageUrl ? (
+              <img src={startupConfig.openidImageUrl} alt="OpenID Logo" className="h-5 w-5" />
+            ) : (
+              <OpenIDIcon />
+            ),
+        };
+
     return (
       <div className="flex min-h-screen flex-col items-center justify-center p-4">
         <p className="text-lg font-semibold">
-          {localize('com_ui_redirecting_to_provider', { 0: startupConfig.openidLabel })}
+          {localize('com_ui_redirecting_to_provider', { 0: redirectConfig.label })}
         </p>
         <div className="mt-4">
           <SocialButton
-            key="openid"
-            enabled={startupConfig.openidLoginEnabled}
+            key={redirectConfig.id}
+            enabled={redirectConfig.enabled}
             serverDomain={startupConfig.serverDomain}
-            oauthPath="openid"
-            Icon={() =>
-              startupConfig.openidImageUrl ? (
-                <img src={startupConfig.openidImageUrl} alt="OpenID Logo" className="h-5 w-5" />
-              ) : (
-                <OpenIDIcon />
-              )
-            }
-            label={startupConfig.openidLabel}
-            id="openid"
+            oauthPath={redirectConfig.path}
+            Icon={redirectConfig.Icon}
+            label={redirectConfig.label}
+            id={redirectConfig.id}
           />
         </div>
       </div>
