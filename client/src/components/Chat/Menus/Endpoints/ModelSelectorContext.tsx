@@ -1,6 +1,6 @@
 import debounce from 'lodash/debounce';
 import React, { createContext, useContext, useState, useMemo } from 'react';
-import { isAgentsEndpoint, isAssistantsEndpoint } from 'librechat-data-provider';
+import { isAgentsEndpoint, isAssistantsEndpoint, EModelEndpoint } from 'librechat-data-provider';
 import type * as t from 'librechat-data-provider';
 import type { Endpoint, SelectedValues } from '~/common';
 import { useAgentsMapContext, useAssistantsMapContext, useChatContext } from '~/Providers';
@@ -52,13 +52,24 @@ export function ModelSelectorProvider({ children, startupConfig }: ModelSelector
   const assistantsMap = useAssistantsMapContext();
   const { data: endpointsConfig } = useGetEndpointsQuery();
   const { conversation, newConversation } = useChatContext();
-  const modelSpecs = useMemo(() => startupConfig?.modelSpecs?.list ?? [], [startupConfig]);
-  const { mappedEndpoints, endpointRequiresUserKey } = useEndpoints({
+  const allModelSpecs = useMemo(() => startupConfig?.modelSpecs?.list ?? [], [startupConfig]);
+  const { mappedEndpoints: allMappedEndpoints, endpointRequiresUserKey } = useEndpoints({
     agentsMap,
     assistantsMap,
     startupConfig,
     endpointsConfig,
   });
+
+  // Filter to only show OpenAI-related items
+  const modelSpecs = useMemo(
+    () => allModelSpecs.filter((spec) => spec.preset.endpoint === EModelEndpoint.openAI),
+    [allModelSpecs],
+  );
+
+  const mappedEndpoints = useMemo(
+    () => allMappedEndpoints.filter((endpoint) => endpoint.value === EModelEndpoint.openAI),
+    [allMappedEndpoints],
+  );
   const { onSelectEndpoint, onSelectSpec } = useSelectMention({
     // presets,
     modelSpecs,

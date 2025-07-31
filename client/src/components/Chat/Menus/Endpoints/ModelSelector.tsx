@@ -1,7 +1,12 @@
 import React, { useMemo } from 'react';
 import type { ModelSelectorProps } from '~/common';
 import { ModelSelectorProvider, useModelSelectorContext } from './ModelSelectorContext';
-import { renderModelSpecs, renderEndpoints, renderSearchResults } from './components';
+import {
+  renderModelSpecs,
+  renderEndpoints,
+  renderSearchResults,
+  renderEndpointModels,
+} from './components';
 import { getSelectedIcon, getDisplayValue } from './utils';
 import { CustomMenu as Menu } from './CustomMenu';
 import DialogManager from './DialogManager';
@@ -84,7 +89,14 @@ function ModelSelectorContent() {
         ) : (
           <>
             {renderModelSpecs(modelSpecs, selectedValues.modelSpec || '')}
-            {renderEndpoints(mappedEndpoints ?? [])}
+            {/* Render OpenAI models directly without the endpoint wrapper */}
+            {mappedEndpoints && mappedEndpoints.length > 0 && mappedEndpoints[0].models
+              ? renderEndpointModels(
+                  mappedEndpoints[0],
+                  mappedEndpoints[0].models,
+                  selectedValues.model,
+                )
+              : null}
           </>
         )}
       </Menu>
