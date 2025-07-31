@@ -11,6 +11,7 @@ import { getSelectedIcon, getDisplayValue } from './utils';
 import { CustomMenu as Menu } from './CustomMenu';
 import DialogManager from './DialogManager';
 import { useLocalize } from '~/hooks';
+import { ChevronDownIcon } from '@radix-ui/react-icons';
 
 function ModelSelectorContent() {
   const localize = useLocalize();
@@ -57,15 +58,17 @@ function ModelSelectorContent() {
 
   const trigger = (
     <button
-      className="my-1 flex h-10 w-full max-w-[70vw] items-center justify-center gap-2 rounded-xl border border-border-light bg-surface-secondary px-3 py-2 text-sm text-text-primary hover:bg-surface-tertiary"
+      className="ring-none my-1 flex h-10 w-full max-w-[70vw] items-center justify-center gap-2 rounded-xl border-none bg-surface-secondary px-3 py-2 text-sm text-text-primary hover:bg-surface-tertiary"
       aria-label={localize('com_ui_select_model')}
     >
-      {selectedIcon && React.isValidElement(selectedIcon) && (
+      {/* {selectedIcon && React.isValidElement(selectedIcon) && (
         <div className="flex flex-shrink-0 items-center justify-center overflow-hidden">
           {selectedIcon}
         </div>
-      )}
-      <span className="flex-grow truncate text-left">{selectedDisplayValue}</span>
+      )} */}
+      {/* <span className="flex-grow truncate text-left">{selectedDisplayValue}</span> */}
+      <span className="flex-grow truncate text-left text-lg font-thin tracking-wide">ChatEBT</span>
+      <ChevronDownIcon className="h-4 w-4" />
     </button>
   );
 
