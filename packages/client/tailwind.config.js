@@ -6,7 +6,12 @@ module.exports = {
   darkMode: ['class'],
   theme: {
     extend: {
-      colors: createTailwindColors(),
+      colors: {
+        ...createTailwindColors(),
+        pantheon: {
+          secondary: 'rgb(255 198 114)',
+        },
+      },
     },
   },
   plugins: [],

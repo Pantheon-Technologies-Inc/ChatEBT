@@ -11,6 +11,7 @@ import BookmarkMenu from './Menus/BookmarkMenu';
 import { TemporaryChat } from './TemporaryChat';
 import AddMultiConvo from './AddMultiConvo';
 import { useHasAccess } from '~/hooks';
+import CreditsCounter from '~/components/CreditsCounter';
 
 const defaultInterface = getConfigDefaults().interface;
 
@@ -71,15 +72,19 @@ export default function Header() {
         </div>
         {!isSmallScreen && (
           <div className="flex items-center gap-2">
+            <CreditsCounter />
             <ExportAndShareMenu
               isSharedButtonEnabled={startupConfig?.sharedLinksEnabled ?? false}
             />
             <TemporaryChat />
           </div>
         )}
+        {isSmallScreen && (
+          <div className="flex items-center gap-2">
+            <CreditsCounter />
+          </div>
+        )}
       </div>
-      {/* Empty div for spacing */}
-      <div />
     </div>
   );
 }

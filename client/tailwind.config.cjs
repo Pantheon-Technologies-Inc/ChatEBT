@@ -13,6 +13,7 @@ module.exports = {
     fontFamily: {
       sans: ['Inter', 'sans-serif'],
       mono: ['Roboto Mono', 'monospace'],
+      rajdhani: ['Rajdhani', 'sans-serif'],
     },
     // fontFamily: {
     //   sans: ['Söhne', 'sans-serif'],

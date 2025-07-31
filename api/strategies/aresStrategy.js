@@ -53,48 +53,74 @@ module.exports = () => {
           name: userData.name,
         };
 
-        // Store OAuth tokens in the database
-        try {
-          // Create the token handler with database methods
-          const handleOAuthToken = createHandleOAuthToken({
-            findToken,
-            updateToken,
-            createToken,
-          });
-
-          const identifier = 'ares';
-
-          // Store access token
-          await handleOAuthToken({
-            userId: userData.id,
-            identifier,
-            token: accessToken,
-            type: 'oauth',
-            expiresIn: 3600, // ARES token expiry (adjust as needed)
-          });
-
-          // Store refresh token if provided
-          if (refreshToken) {
-            await handleOAuthToken({
-              userId: userData.id,
-              identifier: `${identifier}:refresh`,
-              token: refreshToken,
-              type: 'oauth_refresh',
-              expiresIn: null, // Refresh tokens typically don't expire or have longer expiry
-            });
+        // Use the social login handler first to get the MongoDB user
+        return aresLogin(accessToken, refreshToken, null, profileData, async (err, user) => {
+          if (err) {
+            return done(err, null);
           }
 
-          logger.info('[aresStrategy] OAuth tokens stored successfully', {
-            userId: userData.id,
-            hasRefreshToken: !!refreshToken,
-          });
-        } catch (tokenError) {
-          logger.error('[aresStrategy] Failed to store OAuth tokens:', tokenError);
-          // Continue with login even if token storage fails
-        }
+          if (!user) {
+            return done(new Error('Social login failed - no user returned'), null);
+          }
 
-        // Use the social login handler
-        return aresLogin(accessToken, refreshToken, null, profileData, done);
+          // Now store tokens using the correct MongoDB user ID
+          try {
+            const identifier = 'ares';
+            const mongoUserId = user._id.toString();
+
+            logger.info('[aresStrategy] Storing ARES tokens for MongoDB user', {
+              aresUserId: userData.id,
+              mongoUserId,
+              email: user.email,
+            });
+
+            // Delete any existing tokens first to ensure fresh tokens
+            const { deleteTokens } = require('~/models');
+            await deleteTokens({ userId: mongoUserId, identifier });
+            await deleteTokens({ userId: mongoUserId, identifier: `${identifier}:refresh` });
+
+            // Create the token handler with database methods
+            const handleOAuthToken = createHandleOAuthToken({
+              findToken,
+              updateToken,
+              createToken,
+            });
+
+            // Always store fresh access token on every login
+            await handleOAuthToken({
+              userId: mongoUserId,
+              identifier,
+              token: accessToken,
+              type: 'oauth',
+              expiresIn: 1800, // ARES tokens expire quickly - 30 minutes
+            });
+
+            // Always store fresh refresh token if provided
+            if (refreshToken) {
+              await handleOAuthToken({
+                userId: mongoUserId,
+                identifier: `${identifier}:refresh`,
+                token: refreshToken,
+                type: 'oauth_refresh',
+                expiresIn: 86400, // Refresh token expires in 24 hours
+              });
+            }
+
+            logger.info('[aresStrategy] OAuth tokens updated successfully on login', {
+              aresUserId: userData.id,
+              mongoUserId,
+              hasRefreshToken: !!refreshToken,
+              timestamp: new Date().toISOString(),
+            });
+          } catch (tokenError) {
+            logger.error('[aresStrategy] Failed to update OAuth tokens:', tokenError);
+            // Continue with login even if token storage fails, but log this as critical
+            logger.error('[aresStrategy] CRITICAL: User will not be able to access ARES resources');
+          }
+
+          // Return the user to complete the authentication
+          return done(null, user);
+        });
       } catch (error) {
         logger.error('[aresStrategy] Error in OAuth strategy:', error);
         return done(error, null);

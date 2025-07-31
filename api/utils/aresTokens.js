@@ -1,16 +1,18 @@
 const { logger } = require('@librechat/data-schemas');
 const { refreshAccessToken, decryptV2 } = require('@librechat/api');
 const { findToken, createToken, updateToken } = require('~/models');
+const { logoutUser } = require('~/server/services/AuthService');
 
 /**
  * Retrieves a valid ARES access token for the given user.
- * Automatically handles token refresh if the token is expired.
+ * Aggressively handles token refresh and forces re-authentication on failure.
  *
  * @param {string} userId - The user's ID
+ * @param {boolean} forceRefresh - Force refresh even if token seems valid
  * @returns {Promise<string>} The access token
- * @throws {Error} If no token is found or refresh fails
+ * @throws {Error} If no token is found or refresh fails (requires re-auth)
  */
-async function getAresAccessToken(userId) {
+async function getAresAccessToken(userId, forceRefresh = false) {
   try {
     const identifier = 'ares';
 
@@ -22,15 +24,25 @@ async function getAresAccessToken(userId) {
     });
 
     if (!tokenData) {
-      throw new Error('No ARES token found. User needs to re-authenticate with ARES.');
+      const error = new Error('ARES_AUTH_REQUIRED: No ARES token found. User must authenticate.');
+      error.code = 'ARES_AUTH_REQUIRED';
+      throw error;
     }
 
-    // Check if token is expired
+    // Check if token is expired or will expire soon (5 minutes buffer)
     const now = new Date();
+    const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
     const isExpired = tokenData.expiresAt && now >= tokenData.expiresAt;
+    const isExpiringSoon = tokenData.expiresAt && fiveMinutesFromNow >= tokenData.expiresAt;
 
-    if (isExpired) {
-      logger.info('[aresTokens] Access token expired, attempting refresh', { userId });
+    if (isExpired || isExpiringSoon || forceRefresh) {
+      logger.info('[aresTokens] Token expired/expiring soon, attempting refresh', {
+        userId,
+        isExpired,
+        isExpiringSoon,
+        forceRefresh,
+        expiresAt: tokenData.expiresAt,
+      });
 
       // Try to refresh the token
       const refreshTokenData = await findToken({
@@ -40,9 +52,25 @@ async function getAresAccessToken(userId) {
       });
 
       if (!refreshTokenData) {
-        throw new Error(
-          'Token expired and no refresh token available. Please re-authenticate with ARES.',
+        // Clean up invalid access token
+        await revokeAresTokens(userId);
+        const error = new Error(
+          'ARES_AUTH_REQUIRED: Refresh token not available. User must re-authenticate.',
         );
+        error.code = 'ARES_AUTH_REQUIRED';
+        throw error;
+      }
+
+      // Check if refresh token is also expired
+      const refreshExpired = refreshTokenData.expiresAt && now >= refreshTokenData.expiresAt;
+      if (refreshExpired) {
+        // Clean up expired tokens
+        await revokeAresTokens(userId);
+        const error = new Error(
+          'ARES_AUTH_REQUIRED: Refresh token expired. User must re-authenticate.',
+        );
+        error.code = 'ARES_AUTH_REQUIRED';
+        throw error;
       }
 
       try {
@@ -54,9 +82,9 @@ async function getAresAccessToken(userId) {
             identifier,
             refresh_token,
             client_url: 'https://oauth.joinares.com/oauth/token',
-            token_exchange_method: 'default_post', // Adjust based on ARES requirements
-            encrypted_oauth_client_id: process.env.ARES_CLIENT_ID, // This should be encrypted
-            encrypted_oauth_client_secret: process.env.ARES_CLIENT_SECRET, // This should be encrypted
+            token_exchange_method: 'default_post',
+            encrypted_oauth_client_id: process.env.ARES_CLIENT_ID,
+            encrypted_oauth_client_secret: process.env.ARES_CLIENT_SECRET,
           },
           {
             findToken,
@@ -65,17 +93,32 @@ async function getAresAccessToken(userId) {
           },
         );
 
-        logger.info('[aresTokens] Token refreshed successfully', { userId });
+        logger.info('[aresTokens] Token refreshed successfully', {
+          userId,
+          newExpiry: refreshedTokens.expires_in,
+        });
         return refreshedTokens.access_token;
       } catch (refreshError) {
-        logger.error('[aresTokens] Failed to refresh token:', refreshError);
-        throw new Error('Failed to refresh ARES token. Please re-authenticate.');
+        logger.error(
+          '[aresTokens] Failed to refresh token, forcing re-authentication:',
+          refreshError,
+        );
+        // Clean up failed tokens
+        await revokeAresTokens(userId);
+        const error = new Error(
+          'ARES_AUTH_REQUIRED: Token refresh failed. User must re-authenticate.',
+        );
+        error.code = 'ARES_AUTH_REQUIRED';
+        throw error;
       }
     }
 
     // Token is valid, decrypt and return
     const decryptedToken = await decryptV2(tokenData.token);
-    logger.debug('[aresTokens] Retrieved valid access token', { userId });
+    logger.debug('[aresTokens] Retrieved valid access token', {
+      userId,
+      expiresAt: tokenData.expiresAt,
+    });
     return decryptedToken;
   } catch (error) {
     logger.error('[aresTokens] Error retrieving ARES access token:', error);
@@ -84,15 +127,18 @@ async function getAresAccessToken(userId) {
 }
 
 /**
- * Makes an authenticated API call to ARES.
+ * Makes an authenticated API call to ARES with automatic retry and token refresh.
  *
  * @param {string} userId - The user's ID
  * @param {string} endpoint - The ARES API endpoint (without base URL)
  * @param {Object} options - Fetch options (method, body, headers, etc.)
+ * @param {number} retryCount - Internal retry counter
  * @returns {Promise<Object>} The API response data
- * @throws {Error} If the API call fails
+ * @throws {Error} If the API call fails or authentication is required
  */
-async function callAresAPI(userId, endpoint, options = {}) {
+async function callAresAPI(userId, endpoint, options = {}, retryCount = 0) {
+  const maxRetries = 1; // Only retry once for token refresh
+
   try {
     const accessToken = await getAresAccessToken(userId);
 
@@ -109,8 +155,35 @@ async function callAresAPI(userId, endpoint, options = {}) {
       },
     });
 
+    // Handle 401 Unauthorized - token might be invalid
+    if (response.status === 401 && retryCount < maxRetries) {
+      logger.warn('[aresTokens] Received 401, attempting token refresh', { userId, endpoint });
+
+      try {
+        // Force refresh the token and retry
+        await getAresAccessToken(userId, true);
+        return await callAresAPI(userId, endpoint, options, retryCount + 1);
+      } catch (refreshError) {
+        if (refreshError.code === 'ARES_AUTH_REQUIRED') {
+          // Re-throw as auth required error
+          throw refreshError;
+        }
+        throw new Error(`Token refresh failed during API call: ${refreshError.message}`);
+      }
+    }
+
     if (!response.ok) {
       const errorText = await response.text();
+
+      // Handle specific ARES error responses
+      if (response.status === 401) {
+        const error = new Error(
+          'ARES_AUTH_REQUIRED: Authentication failed. User must re-authenticate.',
+        );
+        error.code = 'ARES_AUTH_REQUIRED';
+        throw error;
+      }
+
       throw new Error(
         `ARES API call failed: ${response.status} ${response.statusText} - ${errorText}`,
       );
@@ -121,10 +194,21 @@ async function callAresAPI(userId, endpoint, options = {}) {
       userId,
       endpoint,
       status: response.status,
+      retryCount,
     });
     return data;
   } catch (error) {
-    logger.error('[aresTokens] ARES API call failed:', { userId, endpoint, error: error.message });
+    // Pass through auth required errors
+    if (error.code === 'ARES_AUTH_REQUIRED') {
+      throw error;
+    }
+
+    logger.error('[aresTokens] ARES API call failed:', {
+      userId,
+      endpoint,
+      error: error.message,
+      retryCount,
+    });
     throw error;
   }
 }
@@ -150,6 +234,58 @@ async function hasValidAresToken(userId) {
     await getAresAccessToken(userId);
     return true;
   } catch (error) {
+    if (error.code === 'ARES_AUTH_REQUIRED') {
+      return false;
+    }
+    logger.error('[aresTokens] Error checking token validity:', error);
+    return false;
+  }
+}
+
+/**
+ * Proactively refreshes ARES tokens if they're expiring soon.
+ * Call this periodically to maintain fresh tokens.
+ *
+ * @param {string} userId - The user's ID
+ * @returns {Promise<boolean>} True if refresh was successful or not needed
+ */
+async function refreshAresTokensIfNeeded(userId) {
+  try {
+    const identifier = 'ares';
+
+    // Get current token info
+    const tokenData = await findToken({
+      userId,
+      type: 'oauth',
+      identifier,
+    });
+
+    if (!tokenData) {
+      logger.debug('[aresTokens] No token found for proactive refresh', { userId });
+      return false;
+    }
+
+    // Check if token expires within 10 minutes
+    const now = new Date();
+    const tenMinutesFromNow = new Date(now.getTime() + 10 * 60 * 1000);
+    const needsRefresh = tokenData.expiresAt && tenMinutesFromNow >= tokenData.expiresAt;
+
+    if (needsRefresh) {
+      logger.info('[aresTokens] Proactively refreshing token', {
+        userId,
+        expiresAt: tokenData.expiresAt,
+      });
+      await getAresAccessToken(userId, true); // Force refresh
+      return true;
+    }
+
+    logger.debug('[aresTokens] Token refresh not needed', {
+      userId,
+      expiresAt: tokenData.expiresAt,
+    });
+    return true;
+  } catch (error) {
+    logger.error('[aresTokens] Error during proactive token refresh:', error);
     return false;
   }
 }
@@ -184,10 +320,128 @@ async function revokeAresTokens(userId) {
   }
 }
 
+/**
+ * Automatically logs out a user when ARES tokens are invalid/expired.
+ * This forces a complete logout from the application, not just ARES.
+ *
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @param {string} reason - Reason for auto-logout (for logging)
+ * @returns {Promise<boolean>} True if logout was successful
+ */
+async function autoLogoutUser(req, res, reason = 'ARES token invalid') {
+  try {
+    const userId = req.user?.id || req.user?._id;
+
+    if (!userId) {
+      logger.warn('[aresTokens] Cannot auto-logout: no user in request');
+      return false;
+    }
+
+    logger.info('[aresTokens] Auto-logging out user due to ARES token issues', {
+      userId,
+      reason,
+      userAgent: req.get('User-Agent'),
+      ip: req.ip,
+    });
+
+    // Revoke ARES tokens first
+    await revokeAresTokens(userId);
+
+    // Extract refresh token from cookies for proper logout
+    const cookies = require('cookie');
+    const refreshToken = req.headers.cookie ? cookies.parse(req.headers.cookie).refreshToken : null;
+
+    // Use existing logout functionality
+    const logoutResult = await logoutUser(req, refreshToken);
+
+    // Clear cookies
+    res.clearCookie('refreshToken');
+    res.clearCookie('token_provider');
+
+    if (logoutResult.status === 200) {
+      logger.info('[aresTokens] User auto-logout completed successfully', { userId, reason });
+      return true;
+    } else {
+      logger.error('[aresTokens] Auto-logout failed:', logoutResult);
+      return false;
+    }
+  } catch (error) {
+    logger.error('[aresTokens] Error during auto-logout:', error);
+    return false;
+  }
+}
+
+/**
+ * Checks if a user should be automatically logged out due to ARES token issues.
+ * This is called by middleware to enforce logout when tokens are invalid.
+ *
+ * @param {string} userId - The user's ID
+ * @returns {Promise<boolean>} True if user should be logged out
+ */
+async function shouldAutoLogout(userId) {
+  try {
+    // Check if user has any ARES tokens at all
+    const hasAccessToken = await findToken({
+      userId,
+      type: 'oauth',
+      identifier: 'ares',
+    });
+
+    const hasRefreshToken = await findToken({
+      userId,
+      type: 'oauth_refresh',
+      identifier: 'ares:refresh',
+    });
+
+    // If user has no ARES tokens at all, they should be logged out
+    // This ensures that users without ARES access cannot use the system
+    if (!hasAccessToken && !hasRefreshToken) {
+      logger.info('[aresTokens] User has no ARES tokens - should auto-logout', { userId });
+      return true;
+    }
+
+    // If tokens exist but are expired and can't be refreshed, should logout
+    if (hasAccessToken) {
+      const now = new Date();
+      const isExpired = hasAccessToken.expiresAt && now >= hasAccessToken.expiresAt;
+
+      if (isExpired && !hasRefreshToken) {
+        logger.info(
+          '[aresTokens] User has expired ARES token with no refresh - should auto-logout',
+          { userId },
+        );
+        return true;
+      }
+
+      // Check if refresh token is also expired
+      if (isExpired && hasRefreshToken) {
+        const refreshExpired = hasRefreshToken.expiresAt && now >= hasRefreshToken.expiresAt;
+        if (refreshExpired) {
+          logger.info(
+            '[aresTokens] User has expired ARES tokens (both access and refresh) - should auto-logout',
+            { userId },
+          );
+          return true;
+        }
+      }
+    }
+
+    return false;
+  } catch (error) {
+    logger.error('[aresTokens] Error checking auto-logout conditions:', error);
+    // On error, default to requiring logout for security
+    return true;
+  }
+}
+
 module.exports = {
   getAresAccessToken,
   callAresAPI,
   getAresUserProfile,
   hasValidAresToken,
+  refreshAresTokensIfNeeded,
   revokeAresTokens,
+  autoLogoutUser,
+  shouldAutoLogout,
 };
