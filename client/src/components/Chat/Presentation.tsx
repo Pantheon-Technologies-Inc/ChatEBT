@@ -62,8 +62,8 @@ export default function Presentation({ children }: { children: React.ReactNode }
       <SidePanelProvider>
         <SidePanelGroup
           defaultLayout={defaultLayout}
-          fullPanelCollapse={fullCollapse}
-          defaultCollapsed={defaultCollapsed}
+          fullPanelCollapse={true}
+          defaultCollapsed={true}
           artifacts={
             artifactsVisibility === true && Object.keys(artifacts ?? {}).length > 0 ? (
               <EditorProvider>

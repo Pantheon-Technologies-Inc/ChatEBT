@@ -95,7 +95,7 @@ export default function Footer({ className }: { className?: string }) {
           const isLastElement = index === footerElements.length - 1;
           return (
             <React.Fragment key={`footer-element-${index}`}>
-              {contentRender}
+              {/* {contentRender} */}ChatEBT can make mistakes. Check important info.
               {!isLastElement && (
                 <div
                   key={`separator-${index}`}

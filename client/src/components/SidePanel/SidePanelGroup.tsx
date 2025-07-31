@@ -48,7 +48,8 @@ const SidePanelGroup = memo(
     const [collapsedSize, setCollapsedSize] = useState(navCollapsedSize);
 
     const isSmallScreen = useMediaQuery('(max-width: 767px)');
-    const hideSidePanel = useRecoilValue(store.hideSidePanel);
+    // const hideSidePanel = useRecoilValue(store.hideSidePanel);
+    const hideSidePanel = true;
 
     const calculateLayout = useCallback(() => {
       if (artifacts == null) {
@@ -121,7 +122,7 @@ const SidePanelGroup = memo(
           </ResizablePanel>
           {artifacts != null && (
             <>
-              <ResizableHandleAlt withHandle className="ml-3 bg-border-medium text-text-primary" />
+              {/* <ResizableHandleAlt withHandle className="ml-3 bg-border-medium text-text-primary" />
               <ResizablePanel
                 defaultSize={currentLayout[1]}
                 minSize={minSizeMain}
@@ -129,7 +130,7 @@ const SidePanelGroup = memo(
                 id="artifacts-panel"
               >
                 {artifacts}
-              </ResizablePanel>
+              </ResizablePanel> */}
             </>
           )}
           {!hideSidePanel && interfaceConfig.sidePanel === true && (
