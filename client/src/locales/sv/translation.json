@@ -5,7 +5,7 @@
   "com_a11y_end": "AI har avslutat sitt svar.",
   "com_a11y_start": "AI har påbörjat sitt svar.",
   "com_agents_allow_editing": "Tillåt andra användare att redigera din agent",
-  "com_agents_by_librechat": "av LibreChat",
+  "com_agents_by_librechat": "av ChatEBT",
   "com_agents_code_interpreter": "När den är aktiverad kan din agent utnyttja LibreChat API för kodtolkning för att köra genererad kod, inklusive filbehandling, på ett säkert sätt. Kräver en giltig API-nyckel.",
   "com_agents_code_interpreter_title": "Kodtolk för API ",
   "com_agents_create_error": "Det uppstod ett fel vid skapandet av din agent.",
