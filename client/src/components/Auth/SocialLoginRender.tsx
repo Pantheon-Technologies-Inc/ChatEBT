@@ -8,6 +8,13 @@ import {
   SamlIcon,
 } from '@librechat/client';
 
+// ARES Icon component
+const AresIcon = () => (
+  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M12 2L2 7v10c0 5.55 3.84 9.74 9 11 5.16-1.26 9-5.45 9-11V7l-10-5z" />
+  </svg>
+);
+
 import SocialButton from './SocialButton';
 
 import { useLocalize } from '~/hooks';
@@ -125,7 +132,7 @@ function SocialLoginRender({
           startupConfig.aresImageUrl ? (
             <img src={startupConfig.aresImageUrl} alt="ARES Logo" className="h-5 w-5" />
           ) : (
-            <img src="/assets/ares_icon.png" alt="ARES Logo" className="h-5 w-5" />
+            <img src="/assets/ares_icon.png" alt="ARES Logo" className="h-6 w-6 rounded-md" />
           )
         }
         label={startupConfig.aresLabel || 'Continue with ARES'}
@@ -139,10 +146,8 @@ function SocialLoginRender({
       <>
         {startupConfig.emailLoginEnabled && (
           <>
-            <div className="relative mt-6 flex w-full items-center justify-center border border-t border-gray-300 uppercase dark:border-gray-600">
-              <div className="absolute bg-white px-3 text-xs text-black dark:bg-gray-900 dark:text-white">
-                Or
-              </div>
+            <div className="relative mt-6 flex w-full items-center justify-center border border-t border-gray-300 uppercase">
+              <div className="absolute bg-white px-3 text-xs text-black">Or</div>
             </div>
             <div className="mt-8" />
           </>
