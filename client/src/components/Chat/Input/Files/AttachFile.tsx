@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
-import { FileUpload, TooltipAnchor, AttachmentIcon } from '@librechat/client';
+import { Plus } from 'lucide-react';
+import { FileUpload, TooltipAnchor } from '@librechat/client';
 import { useLocalize, useFileHandling } from '~/hooks';
 import { cn } from '~/utils';
 
@@ -42,7 +43,7 @@ const AttachFile = ({ disabled }: { disabled?: boolean | null }) => {
             }}
           >
             <div className="flex w-full items-center justify-center gap-2">
-              <AttachmentIcon />
+              <Plus className="h-5 w-5" />
             </div>
           </button>
         }

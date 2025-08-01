@@ -296,11 +296,11 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
             )}
             <div
               className={cn(
-                'items-between flex gap-2 pb-2',
+                'items-between ml-1 flex gap-1 pb-2',
                 isRTL ? 'flex-row-reverse' : 'flex-row',
               )}
             >
-              <div className={`${isRTL ? 'mr-2' : 'ml-2'}`}>
+              <div className={`${isRTL ? 'mr-1' : 'ml-1'}`}>
                 <AttachFileChat disableInputs={disableInputs} />
               </div>
               <BadgeRow

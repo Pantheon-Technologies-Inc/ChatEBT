@@ -1,8 +1,8 @@
 import React, { useRef, useState, useMemo } from 'react';
 import * as Ariakit from '@ariakit/react';
 import { useSetRecoilState } from 'recoil';
-import { FileSearch, ImageUpIcon, TerminalSquareIcon, FileType2Icon } from 'lucide-react';
-import { FileUpload, TooltipAnchor, DropdownPopup, AttachmentIcon } from '@librechat/client';
+import { FileSearch, ImageUpIcon, TerminalSquareIcon, FileType2Icon, Plus } from 'lucide-react';
+import { FileUpload, TooltipAnchor, DropdownPopup } from '@librechat/client';
 import { EToolResources, EModelEndpoint, defaultAgentCapabilities } from 'librechat-data-provider';
 import type { EndpointFileConfig } from 'librechat-data-provider';
 import { useLocalize, useGetAgentsConfig, useFileHandling, useAgentCapabilities } from '~/hooks';
@@ -109,7 +109,7 @@ const AttachFileMenu = ({ disabled, conversationId, endpointFileConfig }: Attach
           )}
         >
           <div className="flex w-full items-center justify-center gap-2">
-            <AttachmentIcon />
+            <Plus className="h-5 w-5" />
           </div>
         </Ariakit.MenuButton>
       }
