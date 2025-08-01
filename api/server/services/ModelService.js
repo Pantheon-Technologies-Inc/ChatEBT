@@ -167,9 +167,23 @@ const fetchOpenAIModels = async (opts, _models = []) => {
   }
 
   if (baseURL === openaiBaseURL) {
-    const regex = /(text-davinci-003|gpt-|o\d+)/;
+    // Filter to only allowed models
+    const allowedModels = [
+      'o4-mini',
+      'o3',
+      'o1',
+      'o1-mini',
+      'gpt-4o',
+      'gpt-4.5-preview',
+      'gpt-4.1',
+      'gpt-4',
+    ];
     const excludeRegex = /audio|realtime/;
-    models = models.filter((model) => regex.test(model) && !excludeRegex.test(model));
+    models = models.filter((model) => {
+      // Only exact matches - no variants
+      const isAllowed = allowedModels.includes(model);
+      return isAllowed && !excludeRegex.test(model);
+    });
     const instructModels = models.filter((model) => model.includes('instruct'));
     const otherModels = models.filter((model) => !model.includes('instruct'));
     models = otherModels.concat(instructModels);
