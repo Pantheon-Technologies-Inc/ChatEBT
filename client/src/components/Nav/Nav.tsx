@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState, useMemo, memo, lazy, Suspense, useRef } from 'react';
 import { useRecoilValue } from 'recoil';
-import { useMediaQuery } from '@librechat/client';
-import { PermissionTypes, Permissions } from 'librechat-data-provider';
-import type { ConversationListResponse } from 'librechat-data-provider';
+import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import { useMediaQuery, NewChatIcon } from '@librechat/client';
+import { PermissionTypes, Permissions, QueryKeys, Constants } from 'librechat-data-provider';
+import type { ConversationListResponse, TMessage } from 'librechat-data-provider';
 import type { InfiniteQueryObserverResult } from '@tanstack/react-query';
 import {
   useLocalize,
@@ -10,6 +12,7 @@ import {
   useAuthContext,
   useLocalStorage,
   useNavScrolling,
+  useNewConvo,
 } from '~/hooks';
 import { useConversationsInfiniteQuery } from '~/data-provider';
 import { Conversations } from '~/components/Conversations';
@@ -54,6 +57,10 @@ const Nav = memo(
   }) => {
     const localize = useLocalize();
     const { isAuthenticated } = useAuthContext();
+    const queryClient = useQueryClient();
+    const navigate = useNavigate();
+    const { newConversation: newConvo } = useNewConvo(0);
+    const { conversation } = store.useCreateConversationAtom(0);
 
     const [navWidth, setNavWidth] = useState(NAV_WIDTH_DESKTOP);
     const isSmallScreen = useMediaQuery('(max-width: 768px)');
@@ -125,6 +132,19 @@ const Nav = memo(
       }
     }, [isSmallScreen, toggleNavVisible]);
 
+    const handleNewChatClick = useCallback(() => {
+      queryClient.setQueryData<TMessage[]>(
+        [QueryKeys.messages, conversation?.conversationId ?? Constants.NEW_CONVO],
+        [],
+      );
+      queryClient.invalidateQueries([QueryKeys.messages]);
+      newConvo();
+      navigate('/c/new', { state: { focusChat: true } });
+      if (isSmallScreen) {
+        toggleNavVisible();
+      }
+    }, [queryClient, conversation, newConvo, navigate, toggleNavVisible, isSmallScreen]);
+
     useEffect(() => {
       if (isSmallScreen) {
         const savedNavVisible = localStorage.getItem('navVisible');
@@ -160,7 +180,7 @@ const Nav = memo(
           <>
             <div className="mt-1.5" />
             <Suspense fallback={null}>
-              <BookmarkNav tags={tags} setTags={setTags} isSmallScreen={isSmallScreen} />
+              {/* <BookmarkNav tags={tags} setTags={setTags} isSmallScreen={isSmallScreen} /> */}
             </Suspense>
           </>
         ),
@@ -203,7 +223,7 @@ const Nav = memo(
                   <nav
                     id="chat-history-nav"
                     aria-label={localize('com_ui_chat_history')}
-                    className="flex h-full flex-col px-2 pb-3.5 md:px-3"
+                    className="flex h-full flex-col px-2 pb-3.5 md:px-1"
                   >
                     <div className="flex flex-1 flex-col" ref={outerContainerRef}>
                       <MemoNewChat
@@ -212,6 +232,22 @@ const Nav = memo(
                         headerButtons={headerButtons}
                         isSmallScreen={isSmallScreen}
                       />
+
+                      <div className="pb-2">
+                        <button
+                          onClick={handleNewChatClick}
+                          className="group relative flex h-12 w-full items-center rounded-lg px-2 text-white transition-colors duration-200 hover:bg-surface-active-alt md:h-9"
+                          aria-label={localize('com_ui_new_chat')}
+                        >
+                          <div className="flex grow items-center gap-2 overflow-hidden rounded-lg">
+                            <NewChatIcon className="h-5 w-5 flex-shrink-0" />
+                            <div className="relative flex-1 grow overflow-hidden whitespace-nowrap text-left">
+                              {localize('com_ui_new_chat')}
+                            </div>
+                          </div>
+                        </button>
+                      </div>
+
                       <Conversations
                         conversations={conversations}
                         moveToTop={moveToTop}

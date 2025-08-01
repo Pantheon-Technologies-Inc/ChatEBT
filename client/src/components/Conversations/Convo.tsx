@@ -176,14 +176,7 @@ export default function Conversation({
           onRename={handleRename}
           isSmallScreen={isSmallScreen}
           localize={localize}
-        >
-          <EndpointIcon
-            conversation={conversation}
-            endpointsConfig={endpointsConfig}
-            size={20}
-            context="menu-item"
-          />
-        </ConvoLink>
+        ></ConvoLink>
       )}
       <div
         className={cn(

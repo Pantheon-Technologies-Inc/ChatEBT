@@ -51,35 +51,34 @@ export default function NewChat({
     <>
       <div className="flex items-center justify-between py-[2px] md:py-2">
         <TooltipAnchor
-          description={localize('com_nav_close_sidebar')}
+          description="Visit ChatEBT"
           render={
-            <Button
-              size="icon"
-              variant="outline"
-              data-testid="close-sidebar-button"
-              aria-label={localize('com_nav_close_sidebar')}
-              className="rounded-full border-none bg-transparent p-2 hover:bg-surface-hover md:rounded-xl"
-              onClick={toggleNav}
+            <a
+              href="https://chatebt.so"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex h-8 w-8 items-center justify-center rounded-full border-none bg-transparent p-1 hover:bg-surface-hover md:h-10 md:w-10 md:rounded-xl md:p-2"
+              aria-label="Visit ChatEBT"
             >
-              <Sidebar className="max-md:hidden" />
-              <MobileSidebar className="m-1 inline-flex size-10 items-center justify-center md:hidden" />
-            </Button>
+              <img src="/assets/logo.svg" alt="ChatEBT Logo" className="h-6 w-6 md:h-8 md:w-8" />
+            </a>
           }
         />
         <div className="flex">
           {headerButtons}
           <TooltipAnchor
-            description={localize('com_ui_new_chat')}
+            description={localize('com_nav_close_sidebar')}
             render={
               <Button
                 size="icon"
                 variant="outline"
-                data-testid="nav-new-chat-button"
-                aria-label={localize('com_ui_new_chat')}
+                data-testid="close-sidebar-button"
+                aria-label={localize('com_nav_close_sidebar')}
                 className="rounded-full border-none bg-transparent p-2 hover:bg-surface-hover md:rounded-xl"
-                onClick={clickHandler}
+                onClick={toggleNav}
               >
-                <NewChatIcon className="icon-md md:h-6 md:w-6" />
+                <Sidebar className="max-md:hidden" />
+                <MobileSidebar className="m-1 inline-flex size-10 items-center justify-center md:hidden" />
               </Button>
             }
           />
