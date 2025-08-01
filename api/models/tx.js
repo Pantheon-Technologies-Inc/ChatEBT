@@ -151,6 +151,29 @@ const tokenValues = Object.assign(
   bedrockValues,
 );
 
+// ARES Credit Configuration
+// Adjust this multiplier based on ARES's credit pricing
+// If 1 ARES credit = $0.001 USD, then multiplier should be 1
+// If 1 ARES credit = $0.01 USD, then multiplier should be 10
+// If 1 ARES credit = $0.02 USD, then multiplier should be 20
+const ARES_CREDIT_TO_USD_MULTIPLIER = 20; // 1 ARES credit = $0.02 USD
+
+/**
+ * ARES-specific token values that convert USD rates to ARES credits
+ * These are calculated by applying the ARES credit multiplier to the USD rates
+ */
+const aresTokenValues = {};
+
+// Convert USD rates to ARES credit rates
+Object.keys(tokenValues).forEach((key) => {
+  if (typeof tokenValues[key] === 'object' && tokenValues[key] !== null) {
+    aresTokenValues[key] = {
+      prompt: (tokenValues[key].prompt || 0) * ARES_CREDIT_TO_USD_MULTIPLIER,
+      completion: (tokenValues[key].completion || 0) * ARES_CREDIT_TO_USD_MULTIPLIER,
+    };
+  }
+});
+
 /**
  * Mapping of model token sizes to their respective multipliers for cached input, read and write.
  * See Anthropic's documentation on this: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching#pricing
@@ -238,6 +261,42 @@ const getValueKey = (model, endpoint) => {
 };
 
 /**
+ * Retrieves the ARES credit multiplier for a given value key and token type.
+ * This uses ARES credit rates instead of USD rates.
+ *
+ * @param {Object} params - The parameters for the function.
+ * @param {string} [params.valueKey] - The key corresponding to the model name.
+ * @param {'prompt' | 'completion'} [params.tokenType] - The type of token (e.g., 'prompt' or 'completion').
+ * @param {string} [params.model] - The model name to derive the value key from if not provided.
+ * @param {string} [params.endpoint] - The endpoint name to derive the value key from if not provided.
+ * @param {EndpointTokenConfig} [params.endpointTokenConfig] - The token configuration for the endpoint.
+ * @returns {number} The ARES credit multiplier for the given parameters, or a default value if not found.
+ */
+const getAresMultiplier = ({ valueKey, tokenType, model, endpoint, endpointTokenConfig }) => {
+  // If there's endpoint-specific config, apply ARES multiplier to it
+  if (endpointTokenConfig) {
+    const baseRate = endpointTokenConfig?.[model]?.[tokenType] ?? defaultRate;
+    return baseRate * ARES_CREDIT_TO_USD_MULTIPLIER;
+  }
+
+  if (valueKey && tokenType) {
+    return aresTokenValues[valueKey]?.[tokenType] ?? defaultRate * ARES_CREDIT_TO_USD_MULTIPLIER;
+  }
+
+  if (!tokenType || !model) {
+    return ARES_CREDIT_TO_USD_MULTIPLIER;
+  }
+
+  valueKey = getValueKey(model, endpoint);
+  if (!valueKey) {
+    return defaultRate * ARES_CREDIT_TO_USD_MULTIPLIER;
+  }
+
+  // If we got this far, and values[tokenType] is undefined somehow, return a default ARES rate
+  return aresTokenValues[valueKey]?.[tokenType] ?? defaultRate * ARES_CREDIT_TO_USD_MULTIPLIER;
+};
+
+/**
  * Retrieves the multiplier for a given value key and token type. If no value key is provided,
  * it attempts to derive it from the model name.
  *
@@ -247,9 +306,23 @@ const getValueKey = (model, endpoint) => {
  * @param {string} [params.model] - The model name to derive the value key from if not provided.
  * @param {string} [params.endpoint] - The endpoint name to derive the value key from if not provided.
  * @param {EndpointTokenConfig} [params.endpointTokenConfig] - The token configuration for the endpoint.
+ * @param {boolean} [params.useAresRates] - Whether to use ARES credit rates instead of USD rates.
  * @returns {number} The multiplier for the given parameters, or a default value if not found.
  */
-const getMultiplier = ({ valueKey, tokenType, model, endpoint, endpointTokenConfig }) => {
+const getMultiplier = ({
+  valueKey,
+  tokenType,
+  model,
+  endpoint,
+  endpointTokenConfig,
+  useAresRates = false,
+}) => {
+  // Use ARES rates if requested
+  if (useAresRates) {
+    return getAresMultiplier({ valueKey, tokenType, model, endpoint, endpointTokenConfig });
+  }
+
+  // Legacy USD-based rates
   if (endpointTokenConfig) {
     return endpointTokenConfig?.[model]?.[tokenType] ?? defaultRate;
   }
@@ -307,9 +380,12 @@ const getCacheMultiplier = ({ valueKey, cacheType, model, endpoint, endpointToke
 
 module.exports = {
   tokenValues,
+  aresTokenValues,
   getValueKey,
   getMultiplier,
+  getAresMultiplier,
   getCacheMultiplier,
   defaultRate,
   cacheTokenValues,
+  ARES_CREDIT_TO_USD_MULTIPLIER,
 };

@@ -23,10 +23,12 @@ const CreditsCounter = ({}: FreeCounterProps) => {
   const [isLoading, setIsLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<boolean>(false);
+  const [lastAuthErrorTime, setLastAuthErrorTime] = useState<number>(0);
 
   // Extract fetch credits into a reusable function
   const fetchCredits = useCallback(async () => {
-    if (!user?.id || !isAuthenticated || !token) return;
+    if (!user?.id || !isAuthenticated || !token || authError) return;
 
     setIsLoading(true);
     setError(null);
@@ -47,10 +49,30 @@ const CreditsCounter = ({}: FreeCounterProps) => {
         const errorData = await response.json();
 
         // Handle ARES authentication errors
-        if (errorData.error === 'ARES_AUTH_REQUIRED' && errorData.autoLogout) {
-          // The server has initiated auto-logout, redirect to login
-          window.location.href = '/login';
-          return;
+        if (errorData.error === 'ARES_AUTH_REQUIRED' || errorData.error === 'ARES_AUTH_EXPIRED') {
+          const now = Date.now();
+
+          // Prevent rapid successive auth errors (rate limiting)
+          if (now - lastAuthErrorTime < 5000) {
+            console.log('ARES authentication error throttled - too recent');
+            return;
+          }
+
+          console.log('ARES authentication error detected, stopping credit fetching');
+          setAuthError(true);
+          setError('Authentication required');
+          setLastAuthErrorTime(now);
+
+          if (errorData.autoLogout) {
+            // The server has initiated auto-logout, redirect to login
+            console.log('Auto-logout triggered, redirecting to login');
+            // Clear all auth-related storage to prevent redirect loops
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            sessionStorage.clear();
+            window.location.href = '/login';
+            return;
+          }
         }
 
         throw new Error(errorData.message || 'Failed to fetch credits');
@@ -61,6 +83,7 @@ const CreditsCounter = ({}: FreeCounterProps) => {
 
       if (data.credits !== undefined) {
         setCredits(data.credits || 0);
+        setAuthError(false); // Reset auth error on successful fetch
       } else {
         console.error('No credits field in response:', data);
         setError('Invalid response format');
@@ -71,11 +94,11 @@ const CreditsCounter = ({}: FreeCounterProps) => {
     } finally {
       setIsLoading(false);
     }
-  }, [user?.id, isAuthenticated, token]);
+  }, [user?.id, isAuthenticated, token, authError, lastAuthErrorTime]);
 
   useEffect(() => {
     // Initial fetch when component mounts
-    if (isAuthenticated && user && token) {
+    if (isAuthenticated && user && token && !authError) {
       fetchCredits();
     } else if (isAuthenticated === false) {
       setIsLoading(false);
@@ -83,14 +106,17 @@ const CreditsCounter = ({}: FreeCounterProps) => {
 
     // Set up event listener for credit updates
     const handleCreditsUpdated = () => {
-      fetchCredits();
+      if (!authError) {
+        fetchCredits();
+      }
     };
 
     window.addEventListener(CREDITS_UPDATED_EVENT, handleCreditsUpdated);
 
     // Set up periodic refresh every 60 seconds as a fallback
+    // But only if we don't have an auth error
     const intervalId = setInterval(() => {
-      if (user?.id && isAuthenticated && token) {
+      if (user?.id && isAuthenticated && token && !authError) {
         fetchCredits();
       }
     }, 60000);
@@ -100,7 +126,7 @@ const CreditsCounter = ({}: FreeCounterProps) => {
       window.removeEventListener(CREDITS_UPDATED_EVENT, handleCreditsUpdated);
       clearInterval(intervalId);
     };
-  }, [user?.id, isAuthenticated, token, fetchCredits]);
+  }, [user?.id, isAuthenticated, token, authError, fetchCredits]);
 
   const redirectToCustomerPortal = async () => {
     setLoading(true);

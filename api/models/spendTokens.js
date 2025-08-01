@@ -1,5 +1,5 @@
 const { logger } = require('~/config');
-const { createTransaction, createStructuredTransaction } = require('./Transaction');
+const { createAresTransaction, createStructuredTransaction } = require('./Transaction');
 /**
  * Creates up to two transactions to record the spending of tokens.
  *
@@ -19,20 +19,39 @@ const { createTransaction, createStructuredTransaction } = require('./Transactio
  * @throws {Error} - Throws an error if there's an issue creating the transactions.
  */
 const spendTokens = async (txData, tokenUsage) => {
+  // Debug logging to catch undefined tokenUsage
+  if (!tokenUsage) {
+    logger.error('[spendTokens] tokenUsage is undefined!', { txData });
+    return;
+  }
+  
   const { promptTokens, completionTokens } = tokenUsage;
-  logger.debug(
-    `[spendTokens] conversationId: ${txData.conversationId}${
+
+  // Skip charging for title generation to avoid multiple deductions
+  if (txData.context === 'title') {
+    logger.info(
+      `[spendTokens] Skipping charge for title generation - conversationId: ${txData.conversationId}`,
+    );
+    return;
+  }
+
+  logger.info(
+    `[spendTokens] ARES transaction starting - conversationId: ${txData.conversationId}${
       txData?.context ? ` | Context: ${txData?.context}` : ''
     } | Token usage: `,
     {
       promptTokens,
       completionTokens,
+      user: txData.user,
+      model: txData.model,
+      tokenUsageType: typeof tokenUsage,
+      tokenUsageKeys: tokenUsage ? Object.keys(tokenUsage) : 'N/A'
     },
   );
   let prompt, completion;
   try {
     if (promptTokens !== undefined) {
-      prompt = await createTransaction({
+      prompt = await createAresTransaction({
         ...txData,
         tokenType: 'prompt',
         rawAmount: promptTokens === 0 ? 0 : -Math.max(promptTokens, 0),
@@ -40,7 +59,7 @@ const spendTokens = async (txData, tokenUsage) => {
     }
 
     if (completionTokens !== undefined) {
-      completion = await createTransaction({
+      completion = await createAresTransaction({
         ...txData,
         tokenType: 'completion',
         rawAmount: completionTokens === 0 ? 0 : -Math.max(completionTokens, 0),
@@ -86,7 +105,22 @@ const spendTokens = async (txData, tokenUsage) => {
  * @throws {Error} - Throws an error if there's an issue creating the transactions.
  */
 const spendStructuredTokens = async (txData, tokenUsage) => {
+  // Debug logging to catch undefined tokenUsage
+  if (!tokenUsage) {
+    logger.error('[spendStructuredTokens] tokenUsage is undefined!', { txData });
+    return;
+  }
+  
   const { promptTokens, completionTokens } = tokenUsage;
+
+  // Skip charging for title generation to avoid multiple deductions
+  if (txData.context === 'title') {
+    logger.info(
+      `[spendStructuredTokens] Skipping charge for title generation - conversationId: ${txData.conversationId}`,
+    );
+    return;
+  }
+
   logger.debug(
     `[spendStructuredTokens] conversationId: ${txData.conversationId}${
       txData?.context ? ` | Context: ${txData?.context}` : ''
@@ -99,6 +133,11 @@ const spendStructuredTokens = async (txData, tokenUsage) => {
   let prompt, completion;
   try {
     if (promptTokens) {
+      // Safety check for promptTokens structure
+      if (typeof promptTokens !== 'object') {
+        logger.error('[spendStructuredTokens] promptTokens is not an object!', { promptTokens, typeof: typeof promptTokens });
+        return;
+      }
       const { input = 0, write = 0, read = 0 } = promptTokens;
       prompt = await createStructuredTransaction({
         ...txData,
@@ -110,7 +149,7 @@ const spendStructuredTokens = async (txData, tokenUsage) => {
     }
 
     if (completionTokens) {
-      completion = await createTransaction({
+      completion = await createAresTransaction({
         ...txData,
         tokenType: 'completion',
         rawAmount: -completionTokens,

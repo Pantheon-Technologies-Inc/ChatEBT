@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/Balance');
-const { requireJwtAuth, requireAresTokens } = require('../middleware/');
+const { requireJwtAuth } = require('../middleware/');
 const { getAresUserProfile } = require('~/utils/aresTokens');
 const { logger } = require('@librechat/data-schemas');
 
@@ -9,7 +9,7 @@ const { logger } = require('@librechat/data-schemas');
 router.get('/', requireJwtAuth, controller);
 
 // New ARES credits endpoint with proper security
-router.get('/ares', requireJwtAuth, requireAresTokens(), async (req, res) => {
+router.get('/ares', requireJwtAuth, async (req, res) => {
   try {
     const userId = req.user?.id || req.user?._id;
 

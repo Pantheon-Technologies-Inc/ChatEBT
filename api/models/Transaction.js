@@ -1,9 +1,80 @@
 const { logger } = require('@librechat/data-schemas');
 const { getBalanceConfig } = require('~/server/services/Config');
-const { getMultiplier, getCacheMultiplier } = require('./tx');
+const { getMultiplier, getCacheMultiplier, getAresMultiplier } = require('./tx');
 const { Transaction, Balance } = require('~/db/models');
+const { callAresAPI } = require('~/utils/aresTokens');
 
 const cancelRate = 1.15;
+
+/**
+ * Deducts credits from ARES using their usage API
+ * @param {Object} params - The deduction parameters
+ * @param {string} params.userId - The user ID
+ * @param {number} params.credits - Amount of credits to deduct
+ * @param {string} params.usage - Usage reason/description
+ * @param {string} [params.model] - Model name for context
+ * @param {string} [params.conversationId] - Conversation ID for context
+ * @returns {Promise<Object>} ARES API response
+ */
+async function deductAresCredits({ userId, credits, usage, model, conversationId }) {
+  try {
+    const usageDescription = usage || `AI conversation using ${model || 'unknown model'}`;
+
+    // Use console.log for immediate debugging visibility
+    console.log('\n🚀 ===== ARES API CALL DEBUG =====');
+    console.log(`User ID: ${userId}`);
+    console.log(`Credits to Deduct: ${credits}`);
+    console.log(`USD Equivalent: $${(credits * 0.02).toFixed(4)}`);
+    console.log(`Usage Description: ${usageDescription}`);
+    console.log(`Model: ${model}`);
+    console.log(`Conversation ID: ${conversationId}`);
+    console.log(`API URL: https://oauth.joinares.com/v1/partner/usage`);
+    console.log('Request Payload:', {
+      client_id: 'ChatEBT',
+      usage: usageDescription,
+      credits: credits,
+    });
+    console.log('=====================================\n');
+
+    const requestBody = {
+      client_id: 'ChatEBT',
+      usage: usageDescription,
+      credits: credits,
+    };
+
+    logger.debug('[deductAresCredits] Request payload', requestBody);
+
+    const aresResponse = await callAresAPI(userId, 'partner/usage', {
+      method: 'POST',
+      body: JSON.stringify(requestBody),
+    });
+
+    logger.info('[deductAresCredits] Successfully deducted ARES credits', {
+      userId,
+      credits,
+      response: aresResponse,
+    });
+
+    return aresResponse;
+  } catch (error) {
+    logger.error('[deductAresCredits] ❌ ARES API CALL FAILED:', {
+      userId,
+      credits,
+      usage,
+      usdEquivalent: `$${(credits * 0.02).toFixed(4)}`,
+      error: error.message,
+      httpStatus: error.response?.status,
+      responseData: error.response?.data,
+      stack: error.stack,
+      debugInfo: {
+        requestedCredits: credits,
+        wasAttemptingToCharge: credits > 0,
+        apiEndpoint: 'https://oauth.joinares.com/v1/partner/usage',
+      },
+    });
+    throw error;
+  }
+}
 
 /**
  * Updates a user's token balance based on a transaction using optimistic concurrency control
@@ -137,7 +208,41 @@ const updateBalance = async ({ user, incrementValue, setValues }) => {
   );
 };
 
-/** Method to calculate and set the tokenValue for a transaction */
+/** Method to calculate and set the tokenValue for a transaction using ARES rates */
+function calculateAresTokenValue(txn) {
+  if (!txn.valueKey || !txn.tokenType) {
+    txn.tokenValue = txn.rawAmount;
+    return;
+  }
+  const { valueKey, tokenType, model, endpointTokenConfig } = txn;
+
+  // Get USD rate for the model (NOT ARES rates - ARES is just a wallet!)
+  const usdRate = Math.abs(
+    getMultiplier({
+      valueKey,
+      tokenType,
+      model,
+      endpoint: txn.endpoint,
+      endpointTokenConfig,
+      useAresRates: false, // ✅ Use original USD rates for models
+    }),
+  );
+
+  // Calculate USD cost first
+  const usdCost = (Math.abs(txn.rawAmount) * usdRate) / 1000000;
+
+  // Convert USD to ARES credits (1 ARES credit = $0.02)
+  const aresCredits = usdCost / 0.02;
+
+  txn.rate = usdRate; // Store the original USD rate for logging
+  txn.tokenValue = txn.rawAmount < 0 ? -aresCredits : aresCredits; // Store as ARES credits with correct sign
+  if (txn.context && txn.tokenType === 'completion' && txn.context === 'incomplete') {
+    txn.tokenValue = Math.ceil(txn.tokenValue * cancelRate);
+    txn.rate *= cancelRate;
+  }
+}
+
+/** Method to calculate and set the tokenValue for a transaction using legacy USD rates */
 function calculateTokenValue(txn) {
   if (!txn.valueKey || !txn.tokenType) {
     txn.tokenValue = txn.rawAmount;
@@ -186,7 +291,144 @@ async function createAutoRefillTransaction(txData) {
 }
 
 /**
- * Static method to create a transaction and update the balance
+ * ARES-based transaction creation that deducts from ARES instead of internal balance
+ * @param {txData} txData - Transaction data.
+ */
+async function createAresTransaction(txData) {
+  if (txData.rawAmount != null && isNaN(txData.rawAmount)) {
+    return;
+  }
+
+  const transaction = new Transaction(txData);
+  transaction.endpointTokenConfig = txData.endpointTokenConfig;
+  calculateAresTokenValue(transaction);
+
+  // Save transaction for audit purposes
+  await transaction.save();
+
+  const balance = await getBalanceConfig();
+  if (!balance?.enabled) {
+    logger.warn('[createAresTransaction] Balance not enabled in config', {
+      user: transaction.user,
+      balanceConfig: balance,
+    });
+    return;
+  }
+
+  // Convert token cost to ARES credits (using absolute value since we're deducting)
+  const exactCredits = Math.abs(transaction.tokenValue);
+
+  // Handle fractional credits properly
+  let aresCreditsToDeduct;
+  if (exactCredits < 0.01) {
+    // For very small amounts (less than $0.0002 worth), don't charge
+    aresCreditsToDeduct = 0;
+    logger.debug('[createAresTransaction] Amount too small to charge', {
+      user: transaction.user,
+      exactCredits,
+      tokenType: transaction.tokenType,
+    });
+  } else if (exactCredits < 1) {
+    // For fractional credits, round to 2 decimal places and set minimum of 0.01 credits
+    aresCreditsToDeduct = Math.max(0.01, Math.round(exactCredits * 100) / 100);
+    logger.debug('[createAresTransaction] Fractional credit handling', {
+      user: transaction.user,
+      exactCredits,
+      aresCreditsToDeduct,
+      minimumApplied: exactCredits < 0.01,
+    });
+  } else {
+    // For amounts >= 1 credit, round to 2 decimal places
+    aresCreditsToDeduct = Math.round(exactCredits * 100) / 100;
+  }
+
+  // The transaction.tokenValue is already in ARES credits
+  // transaction.rate is the USD rate per 1M tokens
+
+  // Use console.log for immediate debugging visibility
+  console.log('\n🔥 ===== ARES CREDIT CALCULATION DEBUG =====');
+  console.log(`User: ${transaction.user}`);
+  console.log(`Token Type: ${transaction.tokenType}`);
+  console.log(`Model: ${transaction.model}`);
+  console.log(`Context: ${transaction.context}`);
+  console.log(`Raw Token Amount: ${transaction.rawAmount}`);
+  console.log(`Absolute Tokens: ${Math.abs(transaction.rawAmount)}`);
+  console.log(`USD Rate: $${transaction.rate} per 1M tokens`);
+  console.log(`Token Value (ARES Credits): ${transaction.tokenValue}`);
+  console.log(`Exact Credits: ${exactCredits}`);
+  console.log(`Credits to Deduct: ${aresCreditsToDeduct}`);
+  console.log(`USD Equivalent: $${(aresCreditsToDeduct * 0.02).toFixed(6)}`);
+  console.log(`Will Charge: ${aresCreditsToDeduct > 0}`);
+  console.log('\n📊 Step-by-Step Calculation:');
+  console.log(
+    `1. ${Math.abs(transaction.rawAmount)} tokens × $${transaction.rate} USD rate = $${((Math.abs(transaction.rawAmount) * transaction.rate) / 1000000).toFixed(6)}`,
+  );
+  console.log(
+    `2. $${((Math.abs(transaction.rawAmount) * transaction.rate) / 1000000).toFixed(6)} ÷ $0.02 = ${exactCredits} ARES credits`,
+  );
+  console.log(
+    `3. ${exactCredits} exact credits → ${aresCreditsToDeduct} final credits (after fractional logic)`,
+  );
+  console.log(
+    `4. ${aresCreditsToDeduct} credits × $0.02 = $${(aresCreditsToDeduct * 0.02).toFixed(6)} USD equivalent`,
+  );
+  console.log('===============================================\n');
+
+  // Only deduct if there are actual credits to deduct
+  if (aresCreditsToDeduct > 0) {
+    try {
+      const usageDescription = `${transaction.tokenType} tokens for ${transaction.model || 'AI conversation'}`;
+
+      await deductAresCredits({
+        userId: transaction.user,
+        credits: aresCreditsToDeduct,
+        usage: usageDescription,
+        model: transaction.model,
+        conversationId: transaction.conversationId,
+      });
+
+      logger.debug('[createAresTransaction] ARES credits deducted successfully', {
+        user: transaction.user,
+        creditsDeducted: aresCreditsToDeduct,
+        tokenType: transaction.tokenType,
+        model: transaction.model,
+      });
+
+      // Get updated balance from ARES for return value
+      const aresProfile = await callAresAPI(transaction.user, 'user');
+      const updatedBalance = aresProfile?.user?.credits || 0;
+
+      return {
+        rate: transaction.rate,
+        user: transaction.user.toString(),
+        balance: updatedBalance,
+        [transaction.tokenType]: -aresCreditsToDeduct, // Negative to show deduction
+        aresResponse: true, // Flag to indicate this came from ARES
+      };
+    } catch (error) {
+      logger.error('[createAresTransaction] Failed to deduct ARES credits:', {
+        user: transaction.user,
+        creditsToDeduct: aresCreditsToDeduct,
+        error: error.message,
+      });
+
+      // Re-throw the error to fail the transaction
+      throw error;
+    }
+  }
+
+  // If no credits to deduct, just return the transaction info
+  return {
+    rate: transaction.rate,
+    user: transaction.user.toString(),
+    balance: 0, // We don't track internal balance anymore
+    [transaction.tokenType]: 0,
+    aresResponse: true,
+  };
+}
+
+/**
+ * Legacy MongoDB-based transaction creation (kept for backwards compatibility)
  * @param {txData} txData - Transaction data.
  */
 async function createTransaction(txData) {
@@ -335,6 +577,8 @@ async function getTransactions(filter) {
 module.exports = {
   getTransactions,
   createTransaction,
+  createAresTransaction,
   createAutoRefillTransaction,
   createStructuredTransaction,
+  deductAresCredits,
 };

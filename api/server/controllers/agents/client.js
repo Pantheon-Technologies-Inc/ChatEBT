@@ -622,6 +622,8 @@ class AgentClient extends BaseClient {
         context,
         conversationId: this.conversationId,
         user: this.user ?? this.options.req.user?.id,
+        endpoint: this.options.endpoint, // ✅ ADD MISSING ENDPOINT
+        valueKey: this.options.endpointType ?? this.options.endpoint, // ✅ ADD MISSING VALUEKEY
         endpointTokenConfig: this.options.endpointTokenConfig,
         model: usage.model ?? model ?? this.model ?? this.options.agent.model_parameters.model,
       };
@@ -1216,6 +1218,8 @@ class AgentClient extends BaseClient {
           context,
           conversationId: this.conversationId,
           user: this.user ?? this.options.req.user?.id,
+          endpoint: this.options.endpoint, // ✅ ADD MISSING ENDPOINT
+          valueKey: this.options.endpointType ?? this.options.endpoint, // ✅ ADD MISSING VALUEKEY
           endpointTokenConfig: this.options.endpointTokenConfig,
         },
         { promptTokens, completionTokens },
@@ -1233,6 +1237,8 @@ class AgentClient extends BaseClient {
             context: 'reasoning',
             conversationId: this.conversationId,
             user: this.user ?? this.options.req.user?.id,
+            endpoint: this.options.endpoint, // ✅ ADD MISSING ENDPOINT
+            valueKey: this.options.endpointType ?? this.options.endpoint, // ✅ ADD MISSING VALUEKEY
             endpointTokenConfig: this.options.endpointTokenConfig,
           },
           { completionTokens: usage.reasoning_tokens },

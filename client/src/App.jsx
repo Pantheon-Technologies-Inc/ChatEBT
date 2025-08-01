@@ -18,6 +18,23 @@ const App = () => {
     queryCache: new QueryCache({
       onError: (error) => {
         if (error?.response?.status === 401) {
+          // Check for ARES authentication errors to prevent redirect loops
+          const errorData = error?.response?.data;
+          if (
+            errorData?.error === 'ARES_AUTH_REQUIRED' ||
+            errorData?.error === 'ARES_AUTH_EXPIRED'
+          ) {
+            console.log('Global ARES auth error detected, clearing storage and redirecting');
+            // Clear all auth-related storage to prevent redirect loops
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            sessionStorage.clear();
+
+            if (errorData?.autoLogout) {
+              window.location.href = '/login';
+              return;
+            }
+          }
           setError(error);
         }
       },

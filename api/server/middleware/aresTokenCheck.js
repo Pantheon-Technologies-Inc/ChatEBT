@@ -23,20 +23,29 @@ function aresTokenCheckMiddleware(options = {}) {
 
   return async (req, res, next) => {
     try {
+      // Debug: Log all requests to see if middleware is running
+      console.log('[ARES_MIDDLEWARE_DEBUG] Request:', req.path, req.method);
+
       // Skip check for certain routes (auth, oauth, health checks, etc.)
       const shouldSkip = skipRoutes.some((pattern) => req.path.startsWith(pattern));
       if (shouldSkip) {
+        console.log('[ARES_MIDDLEWARE_DEBUG] Skipping route:', req.path);
         return next();
       }
 
       // Skip if user is not authenticated (let other middleware handle it)
       const userId = req.user?.id || req.user?._id;
       if (!userId) {
+        console.log('[ARES_MIDDLEWARE_DEBUG] No user, skipping:', req.path);
         return next();
       }
 
+      console.log('[ARES_MIDDLEWARE_DEBUG] Checking ARES tokens for user:', userId, req.path);
+
       // Check if user should be auto-logged out due to ARES token issues
       const shouldLogout = await shouldAutoLogout(userId);
+
+      console.log('[ARES_MIDDLEWARE_DEBUG] Should logout?', shouldLogout, 'for user:', userId);
 
       if (shouldLogout) {
         logger.warn('[aresTokenCheck] User should be auto-logged out due to invalid ARES tokens', {

@@ -333,6 +333,8 @@ class AnthropicClient extends BaseClient {
           user: this.user,
           conversationId: this.conversationId,
           model: model ?? this.modelOptions.model,
+          endpoint: this.options.endpoint, // ✅ ADD MISSING ENDPOINT
+          valueKey: this.options.endpointType ?? this.options.endpoint, // ✅ ADD MISSING VALUEKEY
           endpointTokenConfig: this.options.endpointTokenConfig,
         },
         {
@@ -350,6 +352,8 @@ class AnthropicClient extends BaseClient {
         user: this.user,
         conversationId: this.conversationId,
         model: model ?? this.modelOptions.model,
+        endpoint: this.options.endpoint, // ✅ ADD MISSING ENDPOINT
+        valueKey: this.options.endpointType ?? this.options.endpoint, // ✅ ADD MISSING VALUEKEY
         endpointTokenConfig: this.options.endpointTokenConfig,
       },
       { promptTokens, completionTokens },

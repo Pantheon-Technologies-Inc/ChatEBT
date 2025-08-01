@@ -6,7 +6,23 @@ const ApiErrorWatcher = () => {
   const { error } = useApiErrorBoundary();
   const navigate = useNavigate();
   React.useEffect(() => {
-    if (error?.response?.status === 500) {
+    if (error?.response?.status === 401) {
+      // Handle ARES authentication errors
+      const errorData = error?.response?.data;
+      if (errorData?.error === 'ARES_AUTH_REQUIRED' || errorData?.error === 'ARES_AUTH_EXPIRED') {
+        console.log('ApiErrorWatcher: ARES auth error detected, clearing storage and redirecting');
+        // Clear all auth-related storage to prevent redirect loops
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        sessionStorage.clear();
+        
+        if (errorData?.autoLogout) {
+          window.location.href = '/login';
+          return;
+        }
+      }
+      navigate('/login');
+    } else if (error?.response?.status === 500) {
       // do something with error
       // navigate('/login');
     }

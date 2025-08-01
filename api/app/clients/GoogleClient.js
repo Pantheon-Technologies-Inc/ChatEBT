@@ -848,6 +848,8 @@ class GoogleClient extends BaseClient {
         user: this.user ?? this.options.req?.user?.id,
         conversationId: this.conversationId,
         model: model ?? this.modelOptions.model,
+        endpoint: this.options.endpoint, // ✅ ADD MISSING ENDPOINT
+        valueKey: this.options.endpointType ?? this.options.endpoint, // ✅ ADD MISSING VALUEKEY
         endpointTokenConfig: this.options.endpointTokenConfig,
       },
       { promptTokens, completionTokens },

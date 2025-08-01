@@ -156,19 +156,35 @@ async function callAresAPI(userId, endpoint, options = {}, retryCount = 0) {
     });
 
     // Handle 401 Unauthorized - token might be invalid
-    if (response.status === 401 && retryCount < maxRetries) {
-      logger.warn('[aresTokens] Received 401, attempting token refresh', { userId, endpoint });
+    if (response.status === 401) {
+      logger.warn('[aresTokens] Received 401 from ARES API', { userId, endpoint, retryCount });
 
-      try {
-        // Force refresh the token and retry
-        await getAresAccessToken(userId, true);
-        return await callAresAPI(userId, endpoint, options, retryCount + 1);
-      } catch (refreshError) {
-        if (refreshError.code === 'ARES_AUTH_REQUIRED') {
-          // Re-throw as auth required error
-          throw refreshError;
+      // Only attempt refresh if this is the first attempt
+      if (retryCount < maxRetries) {
+        try {
+          // Force refresh the token and retry
+          await getAresAccessToken(userId, true);
+          return await callAresAPI(userId, endpoint, options, retryCount + 1);
+        } catch (refreshError) {
+          if (refreshError.code === 'ARES_AUTH_REQUIRED') {
+            logger.warn(
+              '[aresTokens] Token refresh failed with ARES_AUTH_REQUIRED - authentication expired',
+              { userId, endpoint },
+            );
+            // Re-throw as auth required error without retry
+            throw refreshError;
+          }
+          throw new Error(`Token refresh failed during API call: ${refreshError.message}`);
         }
-        throw new Error(`Token refresh failed during API call: ${refreshError.message}`);
+      } else {
+        // Too many retries - treat as authentication required
+        logger.error(
+          '[aresTokens] Max retries reached for 401 errors - treating as auth required',
+          { userId, endpoint, retryCount },
+        );
+        const error = new Error('ARES_AUTH_REQUIRED: Maximum authentication retries exceeded.');
+        error.code = 'ARES_AUTH_REQUIRED';
+        throw error;
       }
     }
 

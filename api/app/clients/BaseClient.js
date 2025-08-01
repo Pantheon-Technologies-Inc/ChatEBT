@@ -11,7 +11,7 @@ const {
   Constants,
 } = require('librechat-data-provider');
 const { getMessages, saveMessage, updateMessage, saveConvo, getConvo } = require('~/models');
-const { checkBalance } = require('~/models/balanceMethods');
+const { checkAresBalance } = require('~/models/balanceMethods');
 const { truncateToolCallOutputs } = require('./prompts');
 const { getFiles } = require('~/models/File');
 const TextStream = require('./TextStream');
@@ -652,7 +652,7 @@ class BaseClient {
       balance?.enabled &&
       supportsBalanceCheck[this.options.endpointType ?? this.options.endpoint]
     ) {
-      await checkBalance({
+      await checkAresBalance({
         req: this.options.req,
         res: this.options.res,
         txData: {

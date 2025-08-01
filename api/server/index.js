@@ -91,6 +91,16 @@ const startServer = async () => {
   }
 
   app.use('/oauth', routes.oauth);
+
+  /* ARES Token Check Middleware - Auto-logout users with invalid ARES tokens */
+  const { aresTokenCheckMiddleware } = require('./middleware');
+  app.use(
+    aresTokenCheckMiddleware({
+      skipRoutes: ['/api/auth/', '/api/oauth/', '/health', '/api/config'],
+      logOnly: false,
+    }),
+  );
+
   /* API Endpoints */
   app.use('/api/auth', routes.auth);
   app.use('/api/actions', routes.actions);

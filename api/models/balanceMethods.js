@@ -4,6 +4,7 @@ const { createAutoRefillTransaction } = require('./Transaction');
 const { logViolation } = require('~/cache');
 const { getMultiplier } = require('./tx');
 const { Balance } = require('~/db/models');
+const { callAresAPI } = require('~/utils/aresTokens');
 
 function isInvalidDate(date) {
   return isNaN(date);
@@ -112,8 +113,144 @@ const addIntervalToDate = (date, value, unit) => {
 };
 
 /**
- * Checks the balance for a user and determines if they can spend a certain amount.
- * If the user cannot spend the amount, it logs a violation and denies the request.
+ * ARES-based balance check that uses ARES API instead of internal MongoDB balance.
+ *
+ * @async
+ * @function
+ * @param {Object} params - The function parameters.
+ * @param {Express.Request} params.req - The Express request object.
+ * @param {Express.Response} params.res - The Express response object.
+ * @param {Object} params.txData - The transaction data.
+ * @param {string} params.txData.user - The user ID or identifier.
+ * @param {('prompt' | 'completion')} params.txData.tokenType - The type of token.
+ * @param {number} params.txData.amount - The amount of tokens.
+ * @param {string} params.txData.model - The model name or identifier.
+ * @param {string} [params.txData.endpointTokenConfig] - The token configuration for the endpoint.
+ * @returns {Promise<boolean>} Returns true if user has sufficient balance.
+ * @throws {Error} Throws an error if there's an issue with the balance check.
+ */
+const checkAresBalance = async ({ req, res, txData }) => {
+  try {
+    const userId = txData.user;
+
+    logger.info('[checkAresBalance] Starting balance check', {
+      userId,
+      tokenType: txData.tokenType,
+      amount: txData.amount,
+      model: txData.model,
+      endpoint: txData.endpoint,
+    });
+
+    // Calculate the USD cost using original model rates, then convert to ARES credits
+    const usdRate = getMultiplier({
+      valueKey: txData.valueKey,
+      tokenType: txData.tokenType,
+      model: txData.model,
+      endpoint: txData.endpoint,
+      endpointTokenConfig: txData.endpointTokenConfig,
+      useAresRates: false, // ✅ Use original USD rates for models (ARES is just a wallet!)
+    });
+
+    // Calculate USD cost first, then convert to ARES credits
+    const usdCost = (txData.amount * usdRate) / 1000000;
+    const exactCredits = usdCost / 0.02; // Convert USD to ARES credits (1 credit = $0.02)
+
+    // Use same fractional credit handling as createAresTransaction
+    let aresCreditsRequired;
+    if (exactCredits < 0.01) {
+      aresCreditsRequired = 0; // Too small to charge
+    } else if (exactCredits < 1) {
+      aresCreditsRequired = Math.max(0.01, Math.round(exactCredits * 100) / 100);
+    } else {
+      aresCreditsRequired = Math.round(exactCredits * 100) / 100;
+    }
+
+    logger.debug('[checkAresBalance] Calling ARES user API for balance', { userId });
+
+    // Get user's current ARES balance
+    const aresProfile = await callAresAPI(userId, 'user');
+    const currentCredits = aresProfile?.user?.credits || 0;
+
+    // Use console.log for immediate debugging visibility
+    console.log('\n⚖️ ===== BALANCE CHECK DEBUG =====');
+    console.log(`User ID: ${userId}`);
+    console.log(`Token Type: ${txData.tokenType}`);
+    console.log(`Token Amount: ${txData.amount}`);
+    console.log(`Model: ${txData.model}`);
+    console.log(`USD Rate: ${usdRate} per 1M tokens`);
+    console.log(`USD Cost: $${usdCost.toFixed(6)}`);
+    console.log(`Current ARES Credits: ${currentCredits}`);
+    console.log(`Exact Credits Needed: ${exactCredits}`);
+    console.log(`Credits Required: ${aresCreditsRequired}`);
+    console.log(`Balance Check: ${currentCredits >= aresCreditsRequired ? 'PASS ✅' : 'FAIL ❌'}`);
+    console.log(
+      `Calculation: (${txData.amount} tokens × $${usdRate}) ÷ 1,000,000 = $${usdCost.toFixed(6)} → ${exactCredits} ARES credits`,
+    );
+    console.log('==================================\n');
+
+    if (currentCredits >= aresCreditsRequired) {
+      return true;
+    }
+
+    // Insufficient balance - log violation and throw error
+    const type = ViolationTypes.TOKEN_BALANCE;
+    const errorMessage = {
+      type,
+      balance: currentCredits,
+      tokenCost: aresCreditsRequired,
+      promptTokens: txData.amount,
+    };
+
+    if (txData.generations && txData.generations.length > 0) {
+      errorMessage.generations = txData.generations;
+    }
+
+    logger.warn('[checkAresBalance] Insufficient ARES credits', errorMessage);
+    await logViolation(req, res, type, errorMessage, 0);
+    throw new Error(JSON.stringify(errorMessage));
+  } catch (error) {
+    if (error.code === 'ARES_AUTH_REQUIRED') {
+      logger.warn('[checkAresBalance] ARES authentication required, triggering auto-logout', {
+        userId: txData.user,
+      });
+
+      // Import the auto-logout function
+      const { autoLogoutUser } = require('~/utils/aresTokens');
+
+      // Attempt auto-logout if we have req/res objects
+      if (req && res) {
+        try {
+          const logoutSuccess = await autoLogoutUser(
+            req,
+            res,
+            'ARES authentication expired during balance check',
+          );
+          if (logoutSuccess) {
+            logger.info('[checkAresBalance] Auto-logout successful', { userId: txData.user });
+          }
+        } catch (logoutError) {
+          logger.error('[checkAresBalance] Auto-logout failed:', logoutError);
+        }
+      }
+
+      // Throw a cleaner error that indicates auth is required
+      throw new Error(
+        JSON.stringify({
+          type: 'ARES_AUTH_ERROR',
+          message: 'ARES authentication required',
+          code: 'ARES_AUTH_REQUIRED',
+          autoLogout: true,
+        }),
+      );
+    }
+
+    logger.error('[checkAresBalance] Error checking ARES balance:', error);
+    throw error;
+  }
+};
+
+/**
+ * Legacy MongoDB-based balance check (kept for backwards compatibility).
  *
  * @async
  * @function
@@ -153,4 +290,5 @@ const checkBalance = async ({ req, res, txData }) => {
 
 module.exports = {
   checkBalance,
+  checkAresBalance,
 };
