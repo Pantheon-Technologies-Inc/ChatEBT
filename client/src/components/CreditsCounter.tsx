@@ -113,7 +113,11 @@ const CreditsCounter = ({}: FreeCounterProps) => {
   useEffect(() => {
     // Initial fetch when component mounts
     if (isAuthenticated && user && token && !authError) {
-      fetchCredits();
+      // Add a small delay to prevent race conditions on component mount
+      const timer = setTimeout(() => {
+        fetchCredits();
+      }, 1000);
+      return () => clearTimeout(timer);
     } else if (isAuthenticated === false) {
       setIsLoading(false);
     }
@@ -127,13 +131,13 @@ const CreditsCounter = ({}: FreeCounterProps) => {
 
     window.addEventListener(CREDITS_UPDATED_EVENT, handleCreditsUpdated);
 
-    // Set up periodic refresh every 60 seconds as a fallback
+    // Set up periodic refresh every 5 minutes as a fallback
     // But only if we don't have an auth error
     const intervalId = setInterval(() => {
       if (user?.id && isAuthenticated && token && !authError) {
         fetchCredits();
       }
-    }, 60000);
+    }, 300000); // 5 minutes instead of 1 minute
 
     // Clean up
     return () => {

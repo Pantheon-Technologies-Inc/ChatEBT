@@ -169,6 +169,7 @@ const fetchOpenAIModels = async (opts, _models = []) => {
   if (baseURL === openaiBaseURL) {
     // Filter to only allowed models
     const allowedModels = [
+      'gpt-5',
       'o4-mini',
       'o3',
       'o1',

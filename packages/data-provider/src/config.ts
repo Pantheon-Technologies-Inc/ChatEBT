@@ -880,6 +880,7 @@ export const alternateName = {
 };
 
 const sharedOpenAIModels = [
+  'gpt-5',
   'o4-mini',
   'o3',
   'o1',
@@ -1025,6 +1026,7 @@ export const supportsBalanceCheck = {
 };
 
 export const visionModels = [
+  'gpt-5',
   'qwen-vl',
   'grok-vision',
   'grok-2-vision',

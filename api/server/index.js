@@ -133,13 +133,14 @@ const startServer = async () => {
         '/health',
         '/api/config',
         '/api/banner', // Allow banner access without ARES tokens
+        '/api/mcp/', // Allow MCP access without ARES tokens
         '/images/',
         '/',
         '/c/',
         '/login',
         '/register',
       ],
-      logOnly: false,
+      logOnly: true, // Set to true temporarily to debug the middleware behavior
     }),
   );
 

@@ -2,6 +2,7 @@ const z = require('zod');
 const { EModelEndpoint } = require('librechat-data-provider');
 
 const openAIModels = {
+  'gpt-5': 267000, // 272K input - 5K buffer
   'o4-mini': 200000,
   'o3-mini': 195000, // -5000 from max
   o3: 200000,

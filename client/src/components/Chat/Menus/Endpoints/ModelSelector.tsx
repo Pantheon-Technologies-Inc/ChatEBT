@@ -16,6 +16,25 @@ import { ChevronDownIcon } from '@radix-ui/react-icons';
 function ModelSelectorContent() {
   const localize = useLocalize();
 
+  const getModelSuffix = (displayValue: string) => {
+    if (!displayValue || displayValue === localize('com_ui_select_model')) {
+      return '';
+    }
+
+    // For models starting with 'o', show the whole thing
+    if (displayValue.startsWith('o1')) {
+      return displayValue;
+    }
+
+    // For GPT models, remove the 'gpt-' prefix
+    if (displayValue.startsWith('gpt-')) {
+      return displayValue.replace(/^gpt-/, '');
+    }
+
+    // For other models, show as is
+    return displayValue;
+  };
+
   const {
     // LibreChat
     modelSpecs,
@@ -67,7 +86,9 @@ function ModelSelectorContent() {
         </div>
       )} */}
       {/* <span className="flex-grow truncate text-left">{selectedDisplayValue}</span> */}
-      <span className="flex-grow truncate text-left text-lg font-thin tracking-wide">ChatEBT</span>
+      <span className="flex-grow truncate text-left text-lg font-thin tracking-wide">
+        ChatEBT{getModelSuffix(selectedDisplayValue) && ` ${getModelSuffix(selectedDisplayValue)}`}
+      </span>
       <ChevronDownIcon className="h-4 w-4" />
     </button>
   );

@@ -76,6 +76,7 @@ const tokenValues = Object.assign(
     '4k': { prompt: 1.5, completion: 2 },
     '16k': { prompt: 3, completion: 4 },
     'gpt-3.5-turbo-1106': { prompt: 1, completion: 2 },
+    'gpt-5': { prompt: 1.25, completion: 10 },
     'o4-mini': { prompt: 1.1, completion: 4.4 },
     'o3-mini': { prompt: 1.1, completion: 4.4 },
     o3: { prompt: 2, completion: 8 },
@@ -205,7 +206,9 @@ const getValueKey = (model, endpoint) => {
     return undefined;
   }
 
-  if (modelName.includes('gpt-3.5-turbo-16k')) {
+  if (modelName.includes('gpt-5')) {
+    return 'gpt-5';
+  } else if (modelName.includes('gpt-3.5-turbo-16k')) {
     return '16k';
   } else if (modelName.includes('gpt-3.5-turbo-0125')) {
     return 'gpt-3.5-turbo-0125';

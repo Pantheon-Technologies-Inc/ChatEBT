@@ -82,7 +82,7 @@ export function ModelSelectorProvider({ children, startupConfig }: ModelSelector
   // State
   const [selectedValues, setSelectedValues] = useState<SelectedValues>({
     endpoint: conversation?.endpoint || 'openAI',
-    model: conversation?.model || 'gpt-4o',
+    model: conversation?.model || 'gpt-5',
     modelSpec: conversation?.spec || '',
   });
   useSelectorEffects({

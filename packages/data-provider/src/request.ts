@@ -98,6 +98,15 @@ axios.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    // Check for ARES-specific errors that should not trigger token refresh
+    if (error.response.status === 401) {
+      const errorData = error.response.data;
+      if (errorData?.error === 'ARES_AUTH_REQUIRED' || errorData?.error === 'ARES_AUTH_EXPIRED') {
+        console.log('ARES authentication error detected, skipping token refresh');
+        return Promise.reject(error);
+      }
+    }
+
     if (error.response.status === 401 && !originalRequest._retry) {
       console.warn('401 error, refreshing token');
       originalRequest._retry = true;
