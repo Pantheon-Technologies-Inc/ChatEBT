@@ -7,7 +7,7 @@
 
 const cron = require('node-cron');
 const { logger } = require('@librechat/data-schemas');
-const { refreshAresTokensIfNeeded } = require('../utils/aresTokens');
+const { refreshAresTokensIfNeeded, isUserInactive, revokeAresTokens } = require('../utils/aresTokens');
 const { findUser } = require('~/models');
 
 /**
@@ -52,6 +52,7 @@ async function runAresTokenMaintenance() {
       refreshed: 0,
       failed: 0,
       authRequired: 0,
+      inactiveCleanup: 0,
     };
 
     // Process users in batches to avoid overwhelming the system
@@ -63,16 +64,28 @@ async function runAresTokenMaintenance() {
         batch.map(async (userId) => {
           try {
             results.processed++;
-            const refreshed = await refreshAresTokensIfNeeded(userId);
-
-            if (refreshed) {
-              results.refreshed++;
+            
+            // First check if user has been inactive for 30+ days
+            const inactive = await isUserInactive(userId);
+            
+            if (inactive) {
+              // Clean up tokens for inactive users
+              logger.info('[aresTokenMaintenance] Cleaning up tokens for inactive user', { userId });
+              await revokeAresTokens(userId);
+              results.inactiveCleanup++;
             } else {
-              results.authRequired++;
+              // Only refresh tokens for active users
+              const refreshed = await refreshAresTokensIfNeeded(userId);
+
+              if (refreshed) {
+                results.refreshed++;
+              } else {
+                results.authRequired++;
+              }
             }
           } catch (error) {
             results.failed++;
-            logger.error('[aresTokenMaintenance] Failed to refresh token for user:', {
+            logger.error('[aresTokenMaintenance] Failed to process user tokens:', {
               userId,
               error: error.message,
             });
@@ -109,15 +122,15 @@ function setupAresTokenMaintenance() {
     return;
   }
 
-  // Run every 10 minutes to reduce load while still maintaining tokens
-  const job = cron.schedule('*/10 * * * *', runAresTokenMaintenance, {
+  // Run every 5 minutes to aggressively maintain tokens for active users
+  const job = cron.schedule('*/5 * * * *', runAresTokenMaintenance, {
     scheduled: false, // Don't start automatically
     timezone: 'UTC',
   });
 
   // Start the job
   job.start();
-  logger.info('[aresTokenMaintenance] ARES token maintenance job scheduled (every 10 minutes)');
+  logger.info('[aresTokenMaintenance] ARES token maintenance job scheduled (every 5 minutes)');
 
   // Graceful shutdown
   process.on('SIGTERM', () => {

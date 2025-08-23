@@ -145,5 +145,8 @@
       "admin/",
       "packages/"
     ]
+  },
+  "dependencies": {
+    "node-cron": "^4.2.1"
   }
 }

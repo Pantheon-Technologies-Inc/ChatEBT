@@ -316,10 +316,10 @@ async function refreshAresTokensIfNeeded(userId) {
       return false;
     }
 
-    // Check if token expires within 10 minutes
+    // Check if token expires within 15 minutes (increased buffer for active users)
     const now = new Date();
-    const tenMinutesFromNow = new Date(now.getTime() + 10 * 60 * 1000);
-    const needsRefresh = tokenData.expiresAt && tenMinutesFromNow >= tokenData.expiresAt;
+    const fifteenMinutesFromNow = new Date(now.getTime() + 15 * 60 * 1000);
+    const needsRefresh = tokenData.expiresAt && fifteenMinutesFromNow >= tokenData.expiresAt;
 
     if (needsRefresh) {
       logger.info('[aresTokens] Proactively refreshing token', {
@@ -330,7 +330,7 @@ async function refreshAresTokensIfNeeded(userId) {
       return true;
     }
 
-    logger.debug('[aresTokens] Token refresh not needed', {
+    logger.debug('[aresTokens] Token refresh not needed (not expiring within 15 minutes)', {
       userId,
       expiresAt: tokenData.expiresAt,
     });
@@ -424,14 +424,77 @@ async function autoLogoutUser(req, res, reason = 'ARES token invalid') {
 }
 
 /**
+ * Updates user's last activity timestamp
+ *
+ * @param {string} userId - The user's ID
+ * @returns {Promise<void>}
+ */
+async function updateUserActivity(userId) {
+  try {
+    const { updateUser } = require('~/models');
+    await updateUser(
+      { _id: userId },
+      { 
+        lastActivity: new Date(),
+        $unset: { inactiveLogout: 1 } // Remove any previous inactive logout flag
+      }
+    );
+    logger.debug('[aresTokens] Updated user activity timestamp', { userId });
+  } catch (error) {
+    logger.error('[aresTokens] Error updating user activity:', error);
+  }
+}
+
+/**
+ * Checks if a user has been inactive for more than 30 days
+ *
+ * @param {string} userId - The user's ID
+ * @returns {Promise<boolean>} True if user has been inactive for 30+ days
+ */
+async function isUserInactive(userId) {
+  try {
+    const { findUser } = require('~/models');
+    const user = await findUser({ _id: userId });
+    
+    if (!user) {
+      return true; // No user found, consider inactive
+    }
+
+    // If no lastActivity, use createdAt as fallback, or current time if neither exists
+    const lastActivity = user.lastActivity || user.createdAt || new Date();
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const isInactive = lastActivity < thirtyDaysAgo;
+    
+    if (isInactive) {
+      logger.info('[aresTokens] User has been inactive for 30+ days', { 
+        userId, 
+        lastActivity: lastActivity.toISOString(),
+        daysSinceActivity: Math.floor((Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24))
+      });
+    }
+    
+    return isInactive;
+  } catch (error) {
+    logger.error('[aresTokens] Error checking user inactivity:', error);
+    return false; // On error, assume user is active to avoid unexpected logouts
+  }
+}
+
+/**
  * Checks if a user should be automatically logged out due to ARES token issues.
  * This is called by middleware to enforce logout when tokens are invalid.
+ * Only logs out users who have been inactive for 30+ days.
  *
  * @param {string} userId - The user's ID
  * @returns {Promise<boolean>} True if user should be logged out
  */
 async function shouldAutoLogout(userId) {
   try {
+    // First, update user activity since they're making a request
+    await updateUserActivity(userId);
+
     // Check if user has any ARES tokens at all
     const hasAccessToken = await findToken({
       userId,
@@ -445,35 +508,58 @@ async function shouldAutoLogout(userId) {
       identifier: 'ares:refresh',
     });
 
-    // If user has no ARES tokens at all, they should be logged out
-    // This ensures that users without ARES access cannot use the system
+    // If user has no ARES tokens at all, only logout if they've been inactive for 30+ days
     if (!hasAccessToken && !hasRefreshToken) {
-      logger.info('[aresTokens] User has no ARES tokens - should auto-logout', { userId });
-      return true;
+      const inactive = await isUserInactive(userId);
+      if (inactive) {
+        logger.info('[aresTokens] User has no ARES tokens and is inactive for 30+ days - should auto-logout', { userId });
+        return true;
+      } else {
+        logger.info('[aresTokens] User has no ARES tokens but is active - should re-authenticate instead of logout', { userId });
+        return false; // Don't logout, just redirect to ARES auth
+      }
     }
 
-    // If tokens exist but are expired and can't be refreshed, should logout
+    // If tokens exist but are expired and can't be refreshed, only logout inactive users
     if (hasAccessToken) {
       const now = new Date();
       const isExpired = hasAccessToken.expiresAt && now >= hasAccessToken.expiresAt;
 
       if (isExpired && !hasRefreshToken) {
-        logger.info(
-          '[aresTokens] User has expired ARES token with no refresh - should auto-logout',
-          { userId },
-        );
-        return true;
+        const inactive = await isUserInactive(userId);
+        if (inactive) {
+          logger.info(
+            '[aresTokens] User has expired ARES token with no refresh and is inactive - should auto-logout',
+            { userId },
+          );
+          return true;
+        } else {
+          logger.info(
+            '[aresTokens] User has expired ARES token but is active - attempting refresh through re-auth',
+            { userId },
+          );
+          return false; // Active user, don't logout
+        }
       }
 
       // Check if refresh token is also expired
       if (isExpired && hasRefreshToken) {
         const refreshExpired = hasRefreshToken.expiresAt && now >= hasRefreshToken.expiresAt;
         if (refreshExpired) {
-          logger.info(
-            '[aresTokens] User has expired ARES tokens (both access and refresh) - should auto-logout',
-            { userId },
-          );
-          return true;
+          const inactive = await isUserInactive(userId);
+          if (inactive) {
+            logger.info(
+              '[aresTokens] User has expired ARES tokens (both access and refresh) and is inactive - should auto-logout',
+              { userId },
+            );
+            return true;
+          } else {
+            logger.info(
+              '[aresTokens] User has expired ARES tokens but is active - should re-authenticate',
+              { userId },
+            );
+            return false; // Active user, don't logout
+          }
         }
       }
     }
@@ -481,8 +567,8 @@ async function shouldAutoLogout(userId) {
     return false;
   } catch (error) {
     logger.error('[aresTokens] Error checking auto-logout conditions:', error);
-    // On error, default to requiring logout for security
-    return true;
+    // On error, don't logout to avoid disrupting active users
+    return false;
   }
 }
 
@@ -495,4 +581,6 @@ module.exports = {
   revokeAresTokens,
   autoLogoutUser,
   shouldAutoLogout,
+  updateUserActivity,
+  isUserInactive,
 };

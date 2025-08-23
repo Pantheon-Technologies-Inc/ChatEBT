@@ -140,7 +140,7 @@ const startServer = async () => {
         '/login',
         '/register',
       ],
-      logOnly: true, // Set to true temporarily to debug the middleware behavior
+      logOnly: false, // Enable actual auto-logout when tokens are invalid
     }),
   );
 
@@ -171,6 +171,10 @@ const startServer = async () => {
     }
 
     initializeMCPs(app);
+    
+    // Start ARES token maintenance to keep users logged in
+    const { setupAresTokenMaintenance } = require('~/cron/aresTokenMaintenance');
+    setupAresTokenMaintenance();
   });
 };
 
