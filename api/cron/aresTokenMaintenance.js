@@ -109,15 +109,15 @@ function setupAresTokenMaintenance() {
     return;
   }
 
-  // Run every 5 minutes to catch expiring tokens early
-  const job = cron.schedule('*/5 * * * *', runAresTokenMaintenance, {
+  // Run every 10 minutes to reduce load while still maintaining tokens
+  const job = cron.schedule('*/10 * * * *', runAresTokenMaintenance, {
     scheduled: false, // Don't start automatically
     timezone: 'UTC',
   });
 
   // Start the job
   job.start();
-  logger.info('[aresTokenMaintenance] ARES token maintenance job scheduled (every 5 minutes)');
+  logger.info('[aresTokenMaintenance] ARES token maintenance job scheduled (every 10 minutes)');
 
   // Graceful shutdown
   process.on('SIGTERM', () => {

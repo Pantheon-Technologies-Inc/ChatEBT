@@ -3,9 +3,13 @@ const { refreshAccessToken, decryptV2 } = require('@librechat/api');
 const { findToken, createToken, updateToken } = require('~/models');
 const { logoutUser } = require('~/server/services/AuthService');
 
+// Store ongoing refresh operations to prevent race conditions
+const refreshOperations = new Map();
+
 /**
  * Retrieves a valid ARES access token for the given user.
  * Aggressively handles token refresh and forces re-authentication on failure.
+ * Prevents race conditions by ensuring only one refresh operation per user.
  *
  * @param {string} userId - The user's ID
  * @param {boolean} forceRefresh - Force refresh even if token seems valid
@@ -36,6 +40,20 @@ async function getAresAccessToken(userId, forceRefresh = false) {
     const isExpiringSoon = tokenData.expiresAt && fiveMinutesFromNow >= tokenData.expiresAt;
 
     if (isExpired || isExpiringSoon || forceRefresh) {
+      // Check if there's already a refresh operation in progress for this user
+      if (refreshOperations.has(userId)) {
+        logger.info('[aresTokens] Waiting for existing refresh operation', { userId });
+        try {
+          // Wait for the existing refresh operation to complete
+          const refreshedToken = await refreshOperations.get(userId);
+          return refreshedToken;
+        } catch (error) {
+          // If the existing refresh failed, we'll proceed with our own refresh
+          logger.warn('[aresTokens] Existing refresh operation failed, retrying', { userId });
+          refreshOperations.delete(userId);
+        }
+      }
+
       logger.info('[aresTokens] Token expired/expiring soon, attempting refresh', {
         userId,
         isExpired,
@@ -44,71 +62,16 @@ async function getAresAccessToken(userId, forceRefresh = false) {
         expiresAt: tokenData.expiresAt,
       });
 
-      // Try to refresh the token
-      const refreshTokenData = await findToken({
-        userId,
-        type: 'oauth_refresh',
-        identifier: `${identifier}:refresh`,
-      });
-
-      if (!refreshTokenData) {
-        // Clean up invalid access token
-        await revokeAresTokens(userId);
-        const error = new Error(
-          'ARES_AUTH_REQUIRED: Refresh token not available. User must re-authenticate.',
-        );
-        error.code = 'ARES_AUTH_REQUIRED';
-        throw error;
-      }
-
-      // Check if refresh token is also expired
-      const refreshExpired = refreshTokenData.expiresAt && now >= refreshTokenData.expiresAt;
-      if (refreshExpired) {
-        // Clean up expired tokens
-        await revokeAresTokens(userId);
-        const error = new Error(
-          'ARES_AUTH_REQUIRED: Refresh token expired. User must re-authenticate.',
-        );
-        error.code = 'ARES_AUTH_REQUIRED';
-        throw error;
-      }
+      // Create a promise for this refresh operation
+      const refreshPromise = performTokenRefresh(userId, identifier);
+      refreshOperations.set(userId, refreshPromise);
 
       try {
-        const refresh_token = await decryptV2(refreshTokenData.token);
-
-        const refreshedTokens = await refreshAccessToken(
-          {
-            userId,
-            identifier,
-            refresh_token,
-            client_url: 'https://oauth.joinares.com/oauth/token',
-            token_exchange_method: 'default_post',
-            encrypted_oauth_client_id: process.env.ARES_CLIENT_ID,
-            encrypted_oauth_client_secret: process.env.ARES_CLIENT_SECRET,
-          },
-          {
-            findToken,
-            updateToken,
-            createToken,
-          },
-        );
-
-        logger.info('[aresTokens] Token refreshed successfully', {
-          userId,
-          newExpiry: refreshedTokens.expires_in,
-        });
-        return refreshedTokens.access_token;
-      } catch (refreshError) {
-        logger.error(
-          '[aresTokens] Failed to refresh token, forcing re-authentication:',
-          refreshError,
-        );
-        // Clean up failed tokens
-        await revokeAresTokens(userId);
-        const error = new Error(
-          'ARES_AUTH_REQUIRED: Token refresh failed. User must re-authenticate.',
-        );
-        error.code = 'ARES_AUTH_REQUIRED';
+        const refreshedToken = await refreshPromise;
+        refreshOperations.delete(userId);
+        return refreshedToken;
+      } catch (error) {
+        refreshOperations.delete(userId);
         throw error;
       }
     }
@@ -122,6 +85,78 @@ async function getAresAccessToken(userId, forceRefresh = false) {
     return decryptedToken;
   } catch (error) {
     logger.error('[aresTokens] Error retrieving ARES access token:', error);
+    throw error;
+  }
+}
+
+/**
+ * Performs the actual token refresh operation
+ * @param {string} userId - The user's ID
+ * @param {string} identifier - The token identifier
+ * @returns {Promise<string>} The refreshed access token
+ */
+async function performTokenRefresh(userId, identifier) {
+  try {
+    const now = new Date();
+
+    const refreshTokenData = await findToken({
+      userId,
+      type: 'oauth_refresh',
+      identifier: `${identifier}:refresh`,
+    });
+
+    if (!refreshTokenData) {
+      // Clean up invalid access token
+      await revokeAresTokens(userId);
+      const error = new Error(
+        'ARES_AUTH_REQUIRED: Refresh token not available. User must re-authenticate.',
+      );
+      error.code = 'ARES_AUTH_REQUIRED';
+      throw error;
+    }
+
+    // Check if refresh token is also expired
+    const refreshExpired = refreshTokenData.expiresAt && now >= refreshTokenData.expiresAt;
+    if (refreshExpired) {
+      // Clean up expired tokens
+      await revokeAresTokens(userId);
+      const error = new Error(
+        'ARES_AUTH_REQUIRED: Refresh token expired. User must re-authenticate.',
+      );
+      error.code = 'ARES_AUTH_REQUIRED';
+      throw error;
+    }
+
+    const refresh_token = await decryptV2(refreshTokenData.token);
+
+    const refreshedTokens = await refreshAccessToken(
+      {
+        userId,
+        identifier,
+        refresh_token,
+        client_url: 'https://oauth.joinares.com/oauth/token',
+        token_exchange_method: 'default_post',
+        encrypted_oauth_client_id: process.env.ARES_CLIENT_ID,
+        encrypted_oauth_client_secret: process.env.ARES_CLIENT_SECRET,
+      },
+      {
+        findToken,
+        updateToken,
+        createToken,
+      },
+    );
+
+    logger.info('[aresTokens] Token refreshed successfully', {
+      userId,
+      newExpiry: refreshedTokens.expires_in,
+    });
+    return refreshedTokens.access_token;
+  } catch (refreshError) {
+    logger.error('[aresTokens] Failed to refresh token, forcing re-authentication:', refreshError);
+    // Clean up failed tokens
+    await revokeAresTokens(userId);
+    const error = new Error('ARES_AUTH_REQUIRED: Token refresh failed. User must re-authenticate.');
+    error.code = 'ARES_AUTH_REQUIRED';
     throw error;
   }
 }

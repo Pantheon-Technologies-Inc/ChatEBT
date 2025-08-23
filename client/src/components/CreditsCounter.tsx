@@ -34,7 +34,7 @@ const CreditsCounter = ({}: FreeCounterProps) => {
     setError(null);
 
     try {
-      const response = await fetch('/api/balance/ares', {
+      const response = await fetch('/api/balance', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -53,7 +53,7 @@ const CreditsCounter = ({}: FreeCounterProps) => {
           const now = Date.now();
 
           // Prevent rapid successive auth errors (rate limiting)
-          if (now - lastAuthErrorTime < 5000) {
+          if (now - lastAuthErrorTime < 10000) {
             console.log('ARES authentication error throttled - too recent');
             return;
           }
@@ -69,8 +69,19 @@ const CreditsCounter = ({}: FreeCounterProps) => {
             // Clear all auth-related storage to prevent redirect loops
             localStorage.removeItem('token');
             localStorage.removeItem('user');
+            localStorage.removeItem('refreshToken');
             sessionStorage.clear();
-            window.location.href = '/login';
+            // Use setTimeout to prevent rapid redirects
+            setTimeout(() => {
+              window.location.href = '/login';
+            }, 1000);
+            return;
+          } else {
+            // Manual redirect to ARES OAuth without auto-logout
+            console.log('ARES auth required, redirecting to OAuth');
+            setTimeout(() => {
+              window.location.href = '/oauth/ares';
+            }, 1000);
             return;
           }
         }
@@ -90,7 +101,10 @@ const CreditsCounter = ({}: FreeCounterProps) => {
       }
     } catch (error) {
       console.error('Error fetching credits:', error);
-      setError(error instanceof Error ? error.message : 'Unknown error');
+      // Don't set error for auth-related issues to prevent loops
+      if (!error.message?.includes('Authentication') && !error.message?.includes('ARES')) {
+        setError(error instanceof Error ? error.message : 'Unknown error');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -170,7 +184,7 @@ const CreditsCounter = ({}: FreeCounterProps) => {
     <div className={cn('px-3', credits > 25 && '')}>
       <div className="shadow-inner">
         <div className="py-">
-          <div className="mb- font-rajdhani space-y-1 text-right text-sm font-normal tracking-wider text-[#ffc772] sm:text-base">
+          <div className="mb- space-y-1 text-right font-rajdhani text-sm font-normal tracking-wider text-[#ffc772] sm:text-base">
             <div className="flex items-center justify-end">
               <p className="font-rajdhani font-medium">{credits} Credits Left</p>
               <button

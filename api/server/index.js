@@ -92,15 +92,6 @@ const startServer = async () => {
 
   app.use('/oauth', routes.oauth);
 
-  /* ARES Token Check Middleware - Auto-logout users with invalid ARES tokens */
-  const { aresTokenCheckMiddleware } = require('./middleware');
-  app.use(
-    aresTokenCheckMiddleware({
-      skipRoutes: ['/api/auth/', '/api/oauth/', '/health', '/api/config'],
-      logOnly: false,
-    }),
-  );
-
   /* API Endpoints */
   app.use('/api/auth', routes.auth);
   app.use('/api/actions', routes.actions);
@@ -129,6 +120,28 @@ const startServer = async () => {
   app.use('/api/memories', routes.memories);
   app.use('/api/tags', routes.tags);
   app.use('/api/mcp', routes.mcp);
+
+  /* ARES Token Check Middleware - Auto-logout users with invalid ARES tokens */
+  /* Applied globally after routes to catch authenticated API calls */
+  const { aresTokenCheckMiddleware } = require('./middleware');
+  app.use(
+    aresTokenCheckMiddleware({
+      skipRoutes: [
+        '/api/auth/',
+        '/api/oauth/',
+        '/oauth/',
+        '/health',
+        '/api/config',
+        '/api/banner', // Allow banner access without ARES tokens
+        '/images/',
+        '/',
+        '/c/',
+        '/login',
+        '/register',
+      ],
+      logOnly: false,
+    }),
+  );
 
   // Add the error controller one more time after all routes
   app.use(errorController);
