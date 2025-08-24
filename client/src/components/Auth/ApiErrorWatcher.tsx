@@ -17,7 +17,13 @@ const ApiErrorWatcher = () => {
         sessionStorage.clear();
         
         if (errorData?.autoLogout) {
+          // User was automatically logged out, go to login page
           window.location.href = '/login';
+          return;
+        } else if (errorData?.redirectUrl) {
+          // Redirect to ARES OAuth for re-authentication
+          console.log('ApiErrorWatcher: Redirecting to ARES OAuth:', errorData.redirectUrl);
+          window.location.href = errorData.redirectUrl;
           return;
         }
       }

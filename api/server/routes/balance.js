@@ -42,9 +42,8 @@ router.get('/', requireJwtAuth, async (req, res) => {
     if (error.code === 'ARES_AUTH_REQUIRED') {
       return res.status(401).json({
         error: 'ARES_AUTH_REQUIRED',
-        message: 'ARES authentication required',
+        message: 'ARES authentication required. Please sign in with ARES.',
         redirectUrl: '/oauth/ares',
-        autoLogout: true,
       });
     }
 
@@ -94,9 +93,8 @@ router.get('/ares', requireJwtAuth, async (req, res) => {
     if (error.code === 'ARES_AUTH_REQUIRED') {
       return res.status(401).json({
         error: 'ARES_AUTH_REQUIRED',
-        message: 'ARES authentication required',
+        message: 'ARES authentication required. Please sign in with ARES.',
         redirectUrl: '/oauth/ares',
-        autoLogout: true,
       });
     }
 

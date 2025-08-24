@@ -44,6 +44,7 @@ function aresTokenCheckMiddleware(options = {}) {
           path: req.path,
           method: req.method,
           userAgent: req.get('User-Agent'),
+          timestamp: new Date().toISOString(),
         });
 
         if (logOnly) {

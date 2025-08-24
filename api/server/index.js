@@ -174,7 +174,9 @@ const startServer = async () => {
     
     // Start ARES token maintenance to keep users logged in
     const { setupAresTokenMaintenance } = require('~/cron/aresTokenMaintenance');
+    logger.info('[Server] Starting ARES token maintenance system...');
     setupAresTokenMaintenance();
+    logger.info('[Server] ARES token maintenance system started successfully');
   });
 };
 
