@@ -121,29 +121,6 @@ const startServer = async () => {
   app.use('/api/tags', routes.tags);
   app.use('/api/mcp', routes.mcp);
 
-  /* ARES Token Check Middleware - Auto-logout users with invalid ARES tokens */
-  /* Applied globally after routes to catch authenticated API calls */
-  const { aresTokenCheckMiddleware } = require('./middleware');
-  app.use(
-    aresTokenCheckMiddleware({
-      skipRoutes: [
-        '/api/auth/',
-        '/api/oauth/',
-        '/oauth/',
-        '/health',
-        '/api/config',
-        '/api/banner', // Allow banner access without ARES tokens
-        '/api/mcp/', // Allow MCP access without ARES tokens
-        '/images/',
-        '/',
-        '/c/',
-        '/login',
-        '/register',
-      ],
-      logOnly: false, // Enable actual auto-logout when tokens are invalid
-    }),
-  );
-
   // Add the error controller one more time after all routes
   app.use(errorController);
 
@@ -172,11 +149,9 @@ const startServer = async () => {
 
     initializeMCPs(app);
     
-    // Start ARES token maintenance to keep users logged in
-    const { setupAresTokenMaintenance } = require('~/cron/aresTokenMaintenance');
-    logger.info('[Server] Starting ARES token maintenance system...');
-    setupAresTokenMaintenance();
-    logger.info('[Server] ARES token maintenance system started successfully');
+    // Log simplified ARES implementation
+    logger.info('[Server] ARES OAuth simplified implementation active - no complex middleware or cron jobs');
+    logger.info('[Server] ARES tokens are managed on-demand with automatic refresh');
   });
 };
 

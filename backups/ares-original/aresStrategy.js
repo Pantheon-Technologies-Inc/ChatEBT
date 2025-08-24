@@ -1,21 +1,17 @@
 const { Strategy: OAuth2Strategy } = require('passport-oauth2');
-const { logger } = require('@librechat/data-schemas');
 const socialLogin = require('./socialLogin');
+const { logger } = require('@librechat/data-schemas');
 const { createHandleOAuthToken } = require('@librechat/api');
 const { findToken, createToken, updateToken } = require('~/models');
 
-/**
- * Production-ready ARES OAuth Strategy
- * Simplified, secure, and follows LibreChat conventions
- */
-
+// Extract user profile details from ARES response
 const getProfileDetails = ({ profile }) => ({
   email: profile.email,
   id: profile.id,
   avatarUrl: profile.picture || null,
-  username: profile.email.split('@')[0],
+  username: profile.email.split('@')[0], // Extract username from email
   name: profile.name,
-  emailVerified: true,
+  emailVerified: true, // Assume verified since coming from OAuth
 });
 
 const aresLogin = socialLogin('ares', getProfileDetails);
@@ -28,12 +24,12 @@ module.exports = () => {
       clientID: process.env.ARES_CLIENT_ID,
       clientSecret: process.env.ARES_CLIENT_SECRET,
       callbackURL: `${process.env.DOMAIN_SERVER}/oauth/ares/callback`,
-      scope: ['user:read'],
+      scope: ['user:read'], // Adjust scope as needed for ARES
       proxy: true,
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
-        // Fetch user profile from ARES
+        // Fetch user profile from ARES user endpoint
         const fetch = (await import('node-fetch')).default;
         const response = await fetch('https://oauth.joinares.com/v1/user', {
           headers: {
@@ -43,20 +39,13 @@ module.exports = () => {
         });
 
         if (!response.ok) {
-          logger.error('[aresStrategy] Failed to fetch user profile', {
-            status: response.status,
-            statusText: response.statusText
-          });
           throw new Error(`Failed to fetch user profile: ${response.status}`);
         }
 
         const userData = await response.json();
-        logger.info('[aresStrategy] User data received', { 
-          userId: userData.id,
-          email: userData.email 
-        });
+        logger.info('[aresStrategy] User data received:', { userId: userData.id });
 
-        // Create profile object
+        // Create a profile object that matches the expected format
         const profileData = {
           id: userData.id,
           email: userData.email,
@@ -64,84 +53,76 @@ module.exports = () => {
           name: userData.name,
         };
 
-        // Use standard social login handler
+        // Use the social login handler first to get the MongoDB user
         return aresLogin(accessToken, refreshToken, null, profileData, async (err, user) => {
           if (err) {
-            logger.error('[aresStrategy] Social login error', err);
             return done(err, null);
           }
 
           if (!user) {
-            logger.error('[aresStrategy] Social login failed - no user returned');
             return done(new Error('Social login failed - no user returned'), null);
           }
 
+          // Now store tokens using the correct MongoDB user ID
           try {
-            // Store ARES tokens securely using LibreChat's token system
-            const mongoUserId = user._id.toString();
             const identifier = 'ares';
+            const mongoUserId = user._id.toString();
 
-            logger.info('[aresStrategy] Storing ARES tokens', {
+            logger.info('[aresStrategy] Storing ARES tokens for MongoDB user', {
               aresUserId: userData.id,
               mongoUserId,
               email: user.email,
-              hasRefreshToken: !!refreshToken
             });
 
-            // Create token handler with database methods
+            // Delete any existing tokens first to ensure fresh tokens
+            const { deleteTokens } = require('~/models');
+            await deleteTokens({ userId: mongoUserId, identifier });
+            await deleteTokens({ userId: mongoUserId, identifier: `${identifier}:refresh` });
+
+            // Create the token handler with database methods
             const handleOAuthToken = createHandleOAuthToken({
               findToken,
               updateToken,
               createToken,
             });
 
-            // Store access token
+            // Always store fresh access token on every login
             await handleOAuthToken({
               userId: mongoUserId,
               identifier,
               token: accessToken,
               type: 'oauth',
-              expiresIn: 1800, // 30 minutes
+              expiresIn: 1800, // ARES tokens expire quickly - 30 minutes
             });
 
-            // Store refresh token if provided
+            // Always store fresh refresh token if provided
             if (refreshToken) {
               await handleOAuthToken({
                 userId: mongoUserId,
                 identifier: `${identifier}:refresh`,
                 token: refreshToken,
                 type: 'oauth_refresh',
-                expiresIn: 86400, // 24 hours
+                expiresIn: 86400, // Refresh token expires in 24 hours
               });
             }
 
-            logger.info('[aresStrategy] ARES tokens stored successfully', {
+            logger.info('[aresStrategy] OAuth tokens updated successfully on login', {
+              aresUserId: userData.id,
               mongoUserId,
               hasRefreshToken: !!refreshToken,
               timestamp: new Date().toISOString(),
             });
-
-            return done(null, user);
-
           } catch (tokenError) {
-            logger.error('[aresStrategy] Failed to store ARES tokens', {
-              error: tokenError.message,
-              userId: user._id?.toString(),
-              stack: tokenError.stack
-            });
-            
-            // Continue with login even if token storage fails
-            // User will be prompted to re-authenticate when they try to access ARES resources
-            logger.warn('[aresStrategy] Continuing with login despite token storage failure');
-            return done(null, user);
+            logger.error('[aresStrategy] Failed to update OAuth tokens:', tokenError);
+            // Continue with login even if token storage fails, but log this as critical
+            logger.error('[aresStrategy] CRITICAL: User will not be able to access ARES resources');
           }
-        });
 
-      } catch (error) {
-        logger.error('[aresStrategy] OAuth strategy error', {
-          error: error.message,
-          stack: error.stack
+          // Return the user to complete the authentication
+          return done(null, user);
         });
+      } catch (error) {
+        logger.error('[aresStrategy] Error in OAuth strategy:', error);
         return done(error, null);
       }
     },

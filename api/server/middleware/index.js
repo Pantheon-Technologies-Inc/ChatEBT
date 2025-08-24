@@ -23,14 +23,12 @@ const uaParser = require('./uaParser');
 const checkBan = require('./checkBan');
 const noIndex = require('./noIndex');
 const roles = require('./roles');
-const aresTokenCheck = require('./aresTokenCheck');
 
 module.exports = {
   ...abortMiddleware,
   ...validate,
   ...limiters,
   ...roles,
-  ...aresTokenCheck,
   noIndex,
   checkBan,
   uaParser,
