@@ -2,7 +2,7 @@ const { logger } = require('@librechat/data-schemas');
 const { getBalanceConfig } = require('~/server/services/Config');
 const { getMultiplier, getCacheMultiplier, getAresMultiplier } = require('./tx');
 const { Transaction, Balance } = require('~/db/models');
-const { callAresAPI } = require('~/utils/aresTokens');
+const { callAresAPI } = require('~/utils/aresClient');
 
 const cancelRate = 1.15;
 

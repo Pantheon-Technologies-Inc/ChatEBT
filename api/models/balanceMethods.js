@@ -4,7 +4,7 @@ const { createAutoRefillTransaction } = require('./Transaction');
 const { logViolation } = require('~/cache');
 const { getMultiplier } = require('./tx');
 const { Balance } = require('~/db/models');
-const { callAresAPI } = require('~/utils/aresTokens');
+const { callAresAPI } = require('~/utils/aresClient');
 
 function isInvalidDate(date) {
   return isNaN(date);
@@ -210,36 +210,16 @@ const checkAresBalance = async ({ req, res, txData }) => {
     throw new Error(JSON.stringify(errorMessage));
   } catch (error) {
     if (error.code === 'ARES_AUTH_REQUIRED') {
-      logger.warn('[checkAresBalance] ARES authentication required, triggering auto-logout', {
+      logger.warn('[checkAresBalance] ARES authentication required', {
         userId: txData.user,
       });
 
-      // Import the auto-logout function
-      const { autoLogoutUser } = require('~/utils/aresTokens');
-
-      // Attempt auto-logout if we have req/res objects
-      if (req && res) {
-        try {
-          const logoutSuccess = await autoLogoutUser(
-            req,
-            res,
-            'ARES authentication expired during balance check',
-          );
-          if (logoutSuccess) {
-            logger.info('[checkAresBalance] Auto-logout successful', { userId: txData.user });
-          }
-        } catch (logoutError) {
-          logger.error('[checkAresBalance] Auto-logout failed:', logoutError);
-        }
-      }
-
-      // Throw a cleaner error that indicates auth is required
+      // Throw a cleaner error that indicates auth is required (no auto-logout)
       throw new Error(
         JSON.stringify({
           type: 'ARES_AUTH_ERROR',
           message: 'ARES authentication required',
           code: 'ARES_AUTH_REQUIRED',
-          autoLogout: true,
         }),
       );
     }
