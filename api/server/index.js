@@ -39,6 +39,13 @@ const startServer = async () => {
   await connectDb();
 
   logger.info('Connected to MongoDB');
+  
+  // Run TTL index migration
+  const { fixTokenTTLIndex } = require('~/migrations/fix-token-ttl-index');
+  fixTokenTTLIndex().catch((err) => {
+    logger.error('[Migration] TTL index fix failed:', err);
+  });
+  
   indexSync().catch((err) => {
     logger.error('[indexSync] Background sync failed:', err);
   });
