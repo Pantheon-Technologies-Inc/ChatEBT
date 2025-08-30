@@ -20,6 +20,12 @@ async function getValidAresToken(userId) {
   const identifier = 'ares';
 
   try {
+    logger.info('[aresClient] Starting token retrieval process', { 
+      userId, 
+      identifier,
+      timestamp: new Date().toISOString()
+    });
+
     // Get current access token
     const tokenData = await findToken({
       userId,
@@ -27,10 +33,25 @@ async function getValidAresToken(userId) {
       identifier,
     });
 
+    logger.info('[aresClient] Token lookup completed', { 
+      userId, 
+      tokenFound: !!tokenData,
+      tokenId: tokenData?._id?.toString(),
+      tokenType: tokenData?.type,
+      tokenIdentifier: tokenData?.identifier,
+      hasExpiresAt: !!tokenData?.expiresAt,
+      expiresAt: tokenData?.expiresAt?.toISOString(),
+      createdAt: tokenData?.createdAt?.toISOString(),
+      updatedAt: tokenData?.updatedAt?.toISOString()
+    });
+
     if (!tokenData) {
       const error = new Error('ARES authentication required. Please sign in with ARES.');
       error.code = 'ARES_AUTH_REQUIRED';
-      logger.info('[aresClient] No ARES token found', { userId });
+      logger.info('[aresClient] No ARES token found - user needs to authenticate', { 
+        userId,
+        searchCriteria: { userId, type: 'oauth', identifier }
+      });
       throw error;
     }
 
@@ -92,6 +113,12 @@ async function getValidAresToken(userId) {
  */
 async function performTokenRefresh(userId, identifier) {
   try {
+    logger.info('[aresClient] Starting token refresh process', { 
+      userId, 
+      identifier,
+      timestamp: new Date().toISOString()
+    });
+
     // Get refresh token
     const refreshTokenData = await findToken({
       userId,
@@ -99,11 +126,24 @@ async function performTokenRefresh(userId, identifier) {
       identifier: `${identifier}:refresh`,
     });
 
+    logger.info('[aresClient] Refresh token lookup completed', { 
+      userId, 
+      refreshTokenFound: !!refreshTokenData,
+      refreshTokenId: refreshTokenData?._id?.toString(),
+      refreshTokenType: refreshTokenData?.type,
+      refreshTokenIdentifier: refreshTokenData?.identifier,
+      refreshTokenExpiresAt: refreshTokenData?.expiresAt?.toISOString(),
+      searchCriteria: { userId, type: 'oauth_refresh', identifier: `${identifier}:refresh` }
+    });
+
     if (!refreshTokenData) {
       await cleanupTokens(userId);
       const error = new Error('ARES authentication required. Please sign in with ARES.');
       error.code = 'ARES_AUTH_REQUIRED';
-      logger.warn('[aresClient] No refresh token found', { userId });
+      logger.warn('[aresClient] No refresh token found - cleaning up and requiring auth', { 
+        userId,
+        searchCriteria: { userId, type: 'oauth_refresh', identifier: `${identifier}:refresh` }
+      });
       throw error;
     }
 
@@ -280,16 +320,29 @@ async function cleanupTokens(userId) {
   try {
     const { deleteTokens } = require('~/models');
 
-    await Promise.all([
+    logger.info('[aresClient] Starting token cleanup', { 
+      userId,
+      timestamp: new Date().toISOString(),
+      tokensToDelete: ['ares', 'ares:refresh']
+    });
+
+    const results = await Promise.all([
       deleteTokens({ userId, identifier: 'ares' }),
       deleteTokens({ userId, identifier: 'ares:refresh' })
     ]);
 
-    logger.info('[aresClient] Cleaned up ARES tokens', { userId });
+    logger.info('[aresClient] Token cleanup completed', { 
+      userId,
+      accessTokensDeleted: results[0],
+      refreshTokensDeleted: results[1],
+      totalDeleted: results[0] + results[1]
+    });
+
   } catch (error) {
     logger.error('[aresClient] Error cleaning up tokens', {
       userId,
-      error: error.message
+      error: error.message,
+      stack: error.stack
     });
   }
 }
