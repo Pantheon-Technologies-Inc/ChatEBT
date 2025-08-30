@@ -68,9 +68,19 @@ async function runAresTokenMaintenance() {
             // First check if user has been inactive for 30+ days
             const inactive = await isUserInactive(userId);
             
+            logger.info('[aresTokenMaintenance] Checking user activity status', { 
+              userId, 
+              isInactive: inactive,
+              timestamp: new Date().toISOString()
+            });
+            
             if (inactive) {
               // Clean up tokens for inactive users
-              logger.info('[aresTokenMaintenance] Cleaning up tokens for inactive user', { userId });
+              logger.warn('[aresTokenMaintenance] User marked as INACTIVE - DELETING TOKENS', { 
+                userId,
+                reason: 'User inactive for 30+ days',
+                action: 'Deleting all ARES tokens'
+              });
               await revokeAresTokens(userId);
               results.inactiveCleanup++;
             } else {
