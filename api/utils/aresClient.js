@@ -33,17 +33,12 @@ async function getValidAresToken(userId) {
       identifier,
     });
 
-    logger.info('[aresClient] Token lookup completed', { 
-      userId, 
-      tokenFound: !!tokenData,
-      tokenId: tokenData?._id?.toString(),
-      tokenType: tokenData?.type,
-      tokenIdentifier: tokenData?.identifier,
-      hasExpiresAt: !!tokenData?.expiresAt,
-      expiresAt: tokenData?.expiresAt?.toISOString(),
-      createdAt: tokenData?.createdAt?.toISOString(),
-      updatedAt: tokenData?.updatedAt?.toISOString()
-    });
+    logger.info(`[aresClient] Token lookup completed - userId: ${userId}, tokenFound: ${!!tokenData}`);
+    if (tokenData) {
+      logger.info(`[aresClient] Token details - id: ${tokenData._id}, type: ${tokenData.type}, identifier: ${tokenData.identifier}, expires: ${tokenData.expiresAt}`);
+    } else {
+      logger.info(`[aresClient] Token lookup details - searching for userId: ${userId}, type: oauth, identifier: ares`);
+    }
 
     if (!tokenData) {
       const error = new Error('ARES authentication required. Please sign in with ARES.');
