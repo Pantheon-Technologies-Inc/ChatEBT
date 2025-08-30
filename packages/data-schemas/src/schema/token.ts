@@ -35,6 +35,7 @@ const tokenSchema: Schema<IToken> = new Schema({
   },
 });
 
-tokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+// TTL index with 10 minute grace period to allow refresh attempts
+tokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 600 });
 
 export default tokenSchema;

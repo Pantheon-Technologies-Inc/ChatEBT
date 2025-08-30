@@ -120,6 +120,7 @@ const startServer = async () => {
   app.use('/api/memories', routes.memories);
   app.use('/api/tags', routes.tags);
   app.use('/api/mcp', routes.mcp);
+  app.use('/api/ares-tokens', routes.aresTokens);
 
   // Add the error controller one more time after all routes
   app.use(errorController);
@@ -149,13 +150,38 @@ const startServer = async () => {
 
     initializeMCPs(app);
     
-    // Log simplified ARES implementation
-    logger.info('[Server] ARES OAuth simplified implementation active - no complex middleware or cron jobs');
-    logger.info('[Server] ARES tokens are managed on-demand with automatic refresh');
+    // Start ARES background token refresh service
+    const { aresTokenRefreshService } = require('~/services/aresTokenRefreshService');
+    aresTokenRefreshService.start();
+    
+    // Log ARES implementation details
+    logger.info('[Server] ARES OAuth with proactive background token refresh');
+    logger.info('[Server] Background service refreshes tokens for users active within 30 days');
   });
 };
 
 startServer();
+
+// Graceful shutdown handling
+process.on('SIGINT', () => {
+  logger.info('Received SIGINT, shutting down gracefully');
+  
+  // Stop ARES token refresh service
+  const { aresTokenRefreshService } = require('~/services/aresTokenRefreshService');
+  aresTokenRefreshService.stop();
+  
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  logger.info('Received SIGTERM, shutting down gracefully');
+  
+  // Stop ARES token refresh service
+  const { aresTokenRefreshService } = require('~/services/aresTokenRefreshService');
+  aresTokenRefreshService.stop();
+  
+  process.exit(0);
+});
 
 let messageCount = 0;
 process.on('uncaughtException', (err) => {

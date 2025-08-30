@@ -53,15 +53,16 @@ async function getValidAresToken(userId) {
     // Check if token is expired or expiring soon (5 minute buffer)
     const now = new Date();
     const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
-    const needsRefresh = tokenData.expiresAt && fiveMinutesFromNow >= tokenData.expiresAt;
+    const isExpired = tokenData.expiresAt && now >= tokenData.expiresAt;
+    const isExpiringSoon = tokenData.expiresAt && fiveMinutesFromNow >= tokenData.expiresAt;
+    const needsRefresh = isExpired || isExpiringSoon;
+
+    logger.info(`[aresClient] Token expiry check - expires: ${tokenData.expiresAt}, isExpired: ${isExpired}, isExpiringSoon: ${isExpiringSoon}, needsRefresh: ${needsRefresh}`);
 
     if (!needsRefresh) {
       // Token is still valid, decrypt and return
       const decryptedToken = await decryptV2(tokenData.token);
-      logger.debug('[aresClient] Using existing valid token', { 
-        userId, 
-        expiresAt: tokenData.expiresAt 
-      });
+      logger.info(`[aresClient] Using existing valid token - expires in ${Math.round((tokenData.expiresAt - now) / 60000)} minutes`);
       return decryptedToken;
     }
 
