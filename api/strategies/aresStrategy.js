@@ -95,6 +95,15 @@ module.exports = () => {
               createToken,
             });
 
+            // Clean up any existing ARES tokens first to ensure proper pairing
+            const { deleteTokens } = require('~/models');
+            await Promise.all([
+              deleteTokens({ userId: mongoUserId, identifier }),
+              deleteTokens({ userId: mongoUserId, identifier: `${identifier}:refresh` })
+            ]);
+
+            logger.info('[aresStrategy] Cleaned up existing ARES tokens', { mongoUserId });
+
             // Store access token
             await handleOAuthToken({
               userId: mongoUserId,
