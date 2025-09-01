@@ -179,7 +179,23 @@ async function performTokenRefresh(userId, identifier) {
 
     logger.info('[aresClient] Token refreshed successfully', {
       userId,
-      expiresIn: refreshedTokens.expires_in
+      expiresIn: refreshedTokens.expires_in,
+      hasAccessToken: !!refreshedTokens.access_token,
+      hasRefreshToken: !!refreshedTokens.refresh_token
+    });
+
+    // Verify the token was actually updated in the database
+    const updatedToken = await findToken({
+      userId,
+      type: 'oauth',
+      identifier,
+    });
+
+    logger.info('[aresClient] Post-refresh token verification', {
+      userId,
+      tokenFound: !!updatedToken,
+      newExpiry: updatedToken?.expiresAt?.toISOString(),
+      tokenId: updatedToken?._id?.toString()
     });
 
     return refreshedTokens.access_token;
