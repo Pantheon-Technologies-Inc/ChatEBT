@@ -1,6 +1,6 @@
 const { logger } = require('@librechat/data-schemas');
-const { refreshAccessToken, decryptV2 } = require('@librechat/api');
-const { findToken, createToken, updateToken } = require('~/models');
+const { refreshAccessToken, decryptV2, encryptV2 } = require('@librechat/api');
+const { findToken, createToken, updateToken, deleteTokens } = require('~/models');
 
 /**
  * Production-ready ARES API Client
@@ -9,6 +9,116 @@ const { findToken, createToken, updateToken } = require('~/models');
 
 // In-memory cache to prevent race conditions during token refresh
 const refreshPromises = new Map();
+
+/**
+ * Perform direct ARES token refresh without using the potentially broken refreshAccessToken function
+ * @param {string} userId - The user's MongoDB ID
+ * @param {string} identifier - Token identifier 
+ * @param {string} refresh_token - Decrypted refresh token
+ * @returns {Promise<Object>} Refresh response with access_token and expires_in
+ */
+async function performDirectAresRefresh(userId, identifier, refresh_token) {
+  logger.info('[aresClient] Starting direct ARES token refresh', { userId });
+
+  try {
+    // Make direct call to ARES token refresh endpoint
+    const response = await fetch('https://oauth.joinares.com/oauth/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+        'User-Agent': 'ChatEBT/1.0',
+      },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: refresh_token,
+        client_id: process.env.ARES_CLIENT_ID,
+        client_secret: process.env.ARES_CLIENT_SECRET,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`ARES refresh failed: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    const tokenData = await response.json();
+    
+    logger.info('[aresClient] ARES API returned refresh data', {
+      userId,
+      hasAccessToken: !!tokenData.access_token,
+      hasRefreshToken: !!tokenData.refresh_token,
+      expiresIn: tokenData.expires_in,
+      tokenType: tokenData.token_type
+    });
+
+    if (!tokenData.access_token) {
+      throw new Error('ARES refresh response missing access_token');
+    }
+
+    // Encrypt the new access token
+    const encryptedAccessToken = await encryptV2(tokenData.access_token);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + (tokenData.expires_in * 1000));
+
+    // Delete the old access token
+    await deleteTokens({ userId, identifier: identifier });
+    
+    logger.info('[aresClient] Deleted old access token', { userId });
+
+    // Create the new access token
+    const newAccessToken = await createToken({
+      userId,
+      type: 'oauth',
+      identifier: identifier,
+      token: encryptedAccessToken,
+      expiresIn: tokenData.expires_in,
+    });
+
+    logger.info('[aresClient] Created new access token', { 
+      userId,
+      tokenId: newAccessToken._id,
+      expiresAt: newAccessToken.expiresAt
+    });
+
+    // If we got a new refresh token, update it too
+    if (tokenData.refresh_token) {
+      logger.info('[aresClient] Updating refresh token', { userId });
+      
+      const encryptedRefreshToken = await encryptV2(tokenData.refresh_token);
+      
+      // Delete old refresh token
+      await deleteTokens({ userId, identifier: `${identifier}:refresh` });
+      
+      // Create new refresh token (usually valid for 24 hours)
+      const refreshExpiresIn = 24 * 60 * 60; // 24 hours in seconds
+      await createToken({
+        userId,
+        type: 'oauth_refresh',
+        identifier: `${identifier}:refresh`,
+        token: encryptedRefreshToken,
+        expiresIn: refreshExpiresIn,
+      });
+
+      logger.info('[aresClient] Updated refresh token', { userId });
+    }
+
+    return {
+      access_token: tokenData.access_token,
+      refresh_token: tokenData.refresh_token,
+      expires_in: tokenData.expires_in,
+      token_type: tokenData.token_type,
+    };
+
+  } catch (error) {
+    logger.error('[aresClient] Direct ARES refresh failed', {
+      userId,
+      error: error.message,
+      stack: error.stack
+    });
+    throw error;
+  }
+}
 
 /**
  * Get a valid ARES access token, refreshing if necessary
@@ -159,23 +269,8 @@ async function performTokenRefresh(userId, identifier) {
     // Decrypt refresh token
     const refresh_token = await decryptV2(refreshTokenData.token);
 
-    // Refresh the access token
-    const refreshedTokens = await refreshAccessToken(
-      {
-        userId,
-        identifier,
-        refresh_token,
-        client_url: 'https://oauth.joinares.com/oauth/token',
-        token_exchange_method: 'default_post',
-        encrypted_oauth_client_id: process.env.ARES_CLIENT_ID,
-        encrypted_oauth_client_secret: process.env.ARES_CLIENT_SECRET,
-      },
-      {
-        findToken,
-        updateToken,
-        createToken,
-      }
-    );
+    // Perform direct ARES token refresh instead of using potentially broken refreshAccessToken
+    const refreshedTokens = await performDirectAresRefresh(userId, identifier, refresh_token);
 
     logger.info('[aresClient] Token refreshed successfully', {
       userId,
@@ -185,18 +280,37 @@ async function performTokenRefresh(userId, identifier) {
     });
 
     // Verify the token was actually updated in the database
-    const updatedToken = await findToken({
-      userId,
-      type: 'oauth',
-      identifier,
-    });
+    try {
+      const updatedToken = await findToken({
+        userId,
+        type: 'oauth',
+        identifier,
+      });
 
-    logger.info('[aresClient] Post-refresh token verification', {
-      userId,
-      tokenFound: !!updatedToken,
-      newExpiry: updatedToken?.expiresAt?.toISOString(),
-      tokenId: updatedToken?._id?.toString()
-    });
+      logger.info('[aresClient] Post-refresh token verification', {
+        userId,
+        tokenFound: !!updatedToken,
+        newExpiry: updatedToken?.expiresAt?.toISOString(),
+        tokenId: updatedToken?._id?.toString(),
+        createdAt: updatedToken?.createdAt?.toISOString()
+      });
+
+      if (!updatedToken) {
+        logger.error('[aresClient] CRITICAL: Token missing after refresh!', {
+          userId,
+          refreshResponse: {
+            hasAccessToken: !!refreshedTokens.access_token,
+            hasRefreshToken: !!refreshedTokens.refresh_token,
+            expiresIn: refreshedTokens.expires_in
+          }
+        });
+      }
+    } catch (verificationError) {
+      logger.error('[aresClient] Error verifying token after refresh', {
+        userId,
+        error: verificationError.message
+      });
+    }
 
     return refreshedTokens.access_token;
 

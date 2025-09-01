@@ -137,7 +137,11 @@ class AresTokenRefreshService {
    */
   async findTokensNeedingRefresh(expiryThreshold, activityThreshold) {
     try {
-      const { mongoose } = require('~/models');
+      const mongoose = require('mongoose');
+      if (!mongoose.models.Token) {
+        logger.error('[aresTokenRefresh] Token model not available');
+        return [];
+      }
       const Token = mongoose.models.Token;
 
       // Find ARES access tokens that expire soon and belong to recently active users
