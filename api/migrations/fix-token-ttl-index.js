@@ -45,13 +45,10 @@ async function fixTokenTTLIndex() {
       }
     }
 
-    // Create new TTL index with 10-minute grace period
-    await collection.createIndex(
-      { expiresAt: 1 }, 
-      { expireAfterSeconds: 600 }
-    );
+    // Create regular index (no TTL) to prevent automatic token deletion
+    await collection.createIndex({ expiresAt: 1 });
     
-    logger.info('[Migration] ✓ Created new TTL index with 600 second grace period');
+    logger.info('[Migration] ✓ Created regular expiresAt index (no automatic deletion)');
     return true;
 
   } catch (error) {

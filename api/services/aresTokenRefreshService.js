@@ -77,9 +77,27 @@ class AresTokenRefreshService {
 
       const tokensNeedingRefresh = await this.findTokensNeedingRefresh(fiveMinutesFromNow, thirtyDaysAgo);
       
-      logger.info('[aresTokenRefresh] Found tokens needing refresh', { 
-        count: tokensNeedingRefresh.length 
+      logger.info('[aresTokenRefresh] Token search completed', { 
+        count: tokensNeedingRefresh.length,
+        searchCriteria: {
+          type: 'oauth',
+          identifier: 'ares',
+          expiresAt: `<= ${fiveMinutesFromNow.toISOString()}`,
+          createdAt: `>= ${thirtyDaysAgo.toISOString()}`
+        }
       });
+
+      if (tokensNeedingRefresh.length > 0) {
+        logger.info('[aresTokenRefresh] Tokens found for refresh:', 
+          tokensNeedingRefresh.map(token => ({
+            userId: token.userId,
+            tokenId: token._id,
+            expiresAt: token.expiresAt,
+            createdAt: token.createdAt,
+            minutesUntilExpiry: Math.round((token.expiresAt - now) / 60000)
+          }))
+        );
+      }
 
       if (tokensNeedingRefresh.length === 0) {
         logger.info('[aresTokenRefresh] No tokens need refresh');
@@ -95,7 +113,22 @@ class AresTokenRefreshService {
 
       for (const token of tokensNeedingRefresh) {
         try {
+          logger.info('[aresTokenRefresh] Processing token refresh', {
+            userId: token.userId,
+            tokenId: token._id,
+            currentExpiry: token.expiresAt,
+            minutesUntilExpiry: Math.round((token.expiresAt - now) / 60000)
+          });
+
           const result = await this.refreshUserToken(token.userId.toString(), token);
+          
+          logger.info('[aresTokenRefresh] Token refresh result', {
+            userId: token.userId,
+            success: result.success,
+            skipped: result.skipped,
+            reason: result.reason
+          });
+
           if (result.success) {
             results.successful++;
           } else if (result.skipped) {
@@ -106,7 +139,9 @@ class AresTokenRefreshService {
         } catch (error) {
           logger.error('[aresTokenRefresh] Error refreshing token for user', {
             userId: token.userId,
-            error: error.message
+            tokenId: token._id,
+            error: error.message,
+            stack: error.stack
           });
           results.failed++;
         }
@@ -116,6 +151,9 @@ class AresTokenRefreshService {
       }
 
       const duration = Date.now() - startTime;
+      // Clean up expired tokens that are older than 1 hour (manual cleanup since we removed TTL)
+      await this.cleanupExpiredTokens();
+
       logger.info('[aresTokenRefresh] Refresh cycle completed', {
         duration: `${duration}ms`,
         successful: results.successful,
@@ -145,12 +183,26 @@ class AresTokenRefreshService {
       const Token = mongoose.models.Token;
 
       // Find ARES access tokens that expire soon and belong to recently active users
+      logger.info('[aresTokenRefresh] Executing token search query', {
+        expiryThreshold: expiryThreshold.toISOString(),
+        activityThreshold: activityThreshold.toISOString()
+      });
+
       const tokens = await Token.find({
         type: 'oauth',
         identifier: 'ares',
         expiresAt: { $lte: expiryThreshold }, // Expires within 5 minutes
         createdAt: { $gte: activityThreshold } // Token created within 30 days (indicates recent activity)
       }).lean();
+
+      logger.info('[aresTokenRefresh] Database query completed', {
+        foundCount: tokens.length,
+        tokens: tokens.map(t => ({
+          userId: t.userId,
+          expiresAt: t.expiresAt,
+          createdAt: t.createdAt
+        }))
+      });
 
       return tokens;
     } catch (error) {
@@ -224,6 +276,36 @@ class AresTokenRefreshService {
         error: error.message
       });
       return { success: false, reason: error.message };
+    }
+  }
+
+  /**
+   * Clean up tokens that have been expired for more than 1 hour
+   * Manual cleanup since we removed the TTL index
+   */
+  async cleanupExpiredTokens() {
+    try {
+      const mongoose = require('mongoose');
+      if (!mongoose.models.Token) {
+        return;
+      }
+      const Token = mongoose.models.Token;
+
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      
+      const result = await Token.deleteMany({
+        expiresAt: { $lte: oneHourAgo }
+      });
+
+      if (result.deletedCount > 0) {
+        logger.info('[aresTokenRefresh] Cleaned up expired tokens', {
+          deletedCount: result.deletedCount
+        });
+      }
+    } catch (error) {
+      logger.error('[aresTokenRefresh] Error cleaning up expired tokens', {
+        error: error.message
+      });
     }
   }
 

@@ -21,6 +21,22 @@ async function performDirectAresRefresh(userId, identifier, refresh_token) {
   logger.info('[aresClient] Starting direct ARES token refresh', { userId });
 
   try {
+    const requestBody = {
+      grant_type: 'refresh_token',
+      refresh_token: refresh_token,
+      client_id: process.env.ARES_CLIENT_ID,
+      client_secret: process.env.ARES_CLIENT_SECRET,
+    };
+
+    logger.info('[aresClient] Making ARES token refresh request', {
+      userId,
+      url: 'https://oauth.joinares.com/oauth/token',
+      hasClientId: !!process.env.ARES_CLIENT_ID,
+      hasClientSecret: !!process.env.ARES_CLIENT_SECRET,
+      hasRefreshToken: !!refresh_token,
+      refreshTokenPrefix: refresh_token?.substring(0, 8) + '...'
+    });
+
     // Make direct call to ARES token refresh endpoint
     const response = await fetch('https://oauth.joinares.com/oauth/token', {
       method: 'POST',
@@ -29,20 +45,39 @@ async function performDirectAresRefresh(userId, identifier, refresh_token) {
         'Accept': 'application/json',
         'User-Agent': 'ChatEBT/1.0',
       },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: refresh_token,
-        client_id: process.env.ARES_CLIENT_ID,
-        client_secret: process.env.ARES_CLIENT_SECRET,
-      }),
+      body: new URLSearchParams(requestBody),
+    });
+
+    logger.info('[aresClient] ARES token refresh response received', {
+      userId,
+      status: response.status,
+      statusText: response.statusText,
+      contentType: response.headers.get('content-type'),
+      ok: response.ok
     });
 
     if (!response.ok) {
       const errorText = await response.text();
+      logger.error('[aresClient] ARES token refresh failed', {
+        userId,
+        status: response.status,
+        statusText: response.statusText,
+        errorBody: errorText,
+        headers: Object.fromEntries(response.headers.entries())
+      });
       throw new Error(`ARES refresh failed: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
     const tokenData = await response.json();
+    logger.info('[aresClient] ARES token refresh successful', {
+      userId,
+      responseKeys: Object.keys(tokenData),
+      hasAccessToken: !!tokenData.access_token,
+      hasRefreshToken: !!tokenData.refresh_token,
+      expiresIn: tokenData.expires_in,
+      tokenType: tokenData.token_type,
+      accessTokenPrefix: tokenData.access_token?.substring(0, 8) + '...'
+    });
     
     logger.info('[aresClient] ARES API returned refresh data', {
       userId,
@@ -57,16 +92,34 @@ async function performDirectAresRefresh(userId, identifier, refresh_token) {
     }
 
     // Encrypt the new access token
+    logger.info('[aresClient] Encrypting new access token', { userId });
     const encryptedAccessToken = await encryptV2(tokenData.access_token);
     const now = new Date();
     const expiresAt = new Date(now.getTime() + (tokenData.expires_in * 1000));
 
+    logger.info('[aresClient] Calculated token expiry', { 
+      userId,
+      expiresIn: tokenData.expires_in,
+      expiresAt: expiresAt.toISOString(),
+      minutesFromNow: Math.round((expiresAt - now) / 60000)
+    });
+
     // Delete the old access token
-    await deleteTokens({ userId, identifier: identifier });
+    logger.info('[aresClient] Deleting old access token', { userId, identifier });
+    const deletedCount = await deleteTokens({ userId, identifier: identifier });
     
-    logger.info('[aresClient] Deleted old access token', { userId });
+    logger.info('[aresClient] Deleted old access token', { 
+      userId,
+      deletedCount: deletedCount.deletedCount || deletedCount 
+    });
 
     // Create the new access token
+    logger.info('[aresClient] Creating new access token', { 
+      userId,
+      identifier,
+      expiresAt: expiresAt.toISOString()
+    });
+    
     const newAccessToken = await createToken({
       userId,
       type: 'oauth',
@@ -77,22 +130,32 @@ async function performDirectAresRefresh(userId, identifier, refresh_token) {
 
     logger.info('[aresClient] Created new access token', { 
       userId,
-      tokenId: newAccessToken._id,
-      expiresAt: newAccessToken.expiresAt
+      tokenId: newAccessToken._id?.toString(),
+      expiresAt: newAccessToken.expiresAt?.toISOString(),
+      createdAt: newAccessToken.createdAt?.toISOString()
     });
 
     // If we got a new refresh token, update it too
     if (tokenData.refresh_token) {
-      logger.info('[aresClient] Updating refresh token', { userId });
+      logger.info('[aresClient] Processing refresh token update', { 
+        userId,
+        hasNewRefreshToken: !!tokenData.refresh_token,
+        newRefreshTokenPrefix: tokenData.refresh_token?.substring(0, 8) + '...'
+      });
       
       const encryptedRefreshToken = await encryptV2(tokenData.refresh_token);
       
       // Delete old refresh token
-      await deleteTokens({ userId, identifier: `${identifier}:refresh` });
+      logger.info('[aresClient] Deleting old refresh token', { userId });
+      const deletedRefreshCount = await deleteTokens({ userId, identifier: `${identifier}:refresh` });
+      logger.info('[aresClient] Deleted old refresh token', { 
+        userId,
+        deletedCount: deletedRefreshCount.deletedCount || deletedRefreshCount
+      });
       
       // Create new refresh token (usually valid for 24 hours)
       const refreshExpiresIn = 24 * 60 * 60; // 24 hours in seconds
-      await createToken({
+      const newRefreshToken = await createToken({
         userId,
         type: 'oauth_refresh',
         identifier: `${identifier}:refresh`,
@@ -100,7 +163,13 @@ async function performDirectAresRefresh(userId, identifier, refresh_token) {
         expiresIn: refreshExpiresIn,
       });
 
-      logger.info('[aresClient] Updated refresh token', { userId });
+      logger.info('[aresClient] Created new refresh token', { 
+        userId,
+        refreshTokenId: newRefreshToken._id?.toString(),
+        expiresAt: newRefreshToken.expiresAt?.toISOString()
+      });
+    } else {
+      logger.info('[aresClient] No new refresh token in response - keeping existing one', { userId });
     }
 
     return {
