@@ -171,10 +171,19 @@ module.exports = () => {
             return done(null, user);
 
           } catch (tokenError) {
+            console.error('[aresStrategy] CRITICAL TOKEN STORAGE FAILURE:');
+            console.error('Error message:', tokenError.message);
+            console.error('Error stack:', tokenError.stack);
+            console.error('User ID:', user._id?.toString());
+            console.error('Access token length:', accessToken?.length);
+            console.error('Refresh token length:', refreshToken?.length);
+            
             logger.error('[aresStrategy] Failed to store ARES tokens', {
               error: tokenError.message,
               userId: user._id?.toString(),
-              stack: tokenError.stack
+              stack: tokenError.stack,
+              hasAccessToken: !!accessToken,
+              hasRefreshToken: !!refreshToken
             });
             
             // Continue with login even if token storage fails
