@@ -161,6 +161,10 @@ const startServer = async () => {
     const { aresTokenRefreshService } = require('~/services/aresTokenRefreshService');
     aresTokenRefreshService.start();
     
+    // Start token watcher for debugging (temporary)
+    const { tokenWatcher } = require('~/services/tokenWatcher');
+    tokenWatcher.start();
+    
     // Log ARES implementation details
     logger.info('[Server] ARES OAuth with proactive background token refresh');
     logger.info('[Server] Background service refreshes tokens for users active within 30 days');
@@ -173,9 +177,11 @@ startServer();
 process.on('SIGINT', () => {
   logger.info('Received SIGINT, shutting down gracefully');
   
-  // Stop ARES token refresh service
+  // Stop ARES services
   const { aresTokenRefreshService } = require('~/services/aresTokenRefreshService');
+  const { tokenWatcher } = require('~/services/tokenWatcher');
   aresTokenRefreshService.stop();
+  tokenWatcher.stop();
   
   process.exit(0);
 });
@@ -183,9 +189,11 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   logger.info('Received SIGTERM, shutting down gracefully');
   
-  // Stop ARES token refresh service
+  // Stop ARES services
   const { aresTokenRefreshService } = require('~/services/aresTokenRefreshService');
+  const { tokenWatcher } = require('~/services/tokenWatcher');
   aresTokenRefreshService.stop();
+  tokenWatcher.stop();
   
   process.exit(0);
 });
