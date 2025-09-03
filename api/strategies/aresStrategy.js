@@ -97,12 +97,16 @@ module.exports = () => {
 
             // Clean up any existing ARES tokens first to ensure proper pairing
             const { deleteTokens } = require('~/models');
-            await Promise.all([
+            const deleteResults = await Promise.all([
               deleteTokens({ userId: mongoUserId, identifier }),
               deleteTokens({ userId: mongoUserId, identifier: `${identifier}:refresh` })
             ]);
 
-            logger.info('[aresStrategy] Cleaned up existing ARES tokens', { mongoUserId });
+            logger.info('[aresStrategy] Cleaned up existing ARES tokens', { 
+              mongoUserId,
+              deletedAccessTokens: deleteResults[0]?.deletedCount || 0,
+              deletedRefreshTokens: deleteResults[1]?.deletedCount || 0
+            });
 
             // Store access token
             await handleOAuthToken({
@@ -124,11 +128,45 @@ module.exports = () => {
               });
             }
 
-            logger.info('[aresStrategy] ARES tokens stored successfully', {
+            // Verify tokens were actually saved by checking database
+            const { findToken } = require('~/models');
+            const savedAccessToken = await findToken({
+              userId: mongoUserId,
+              type: 'oauth',
+              identifier
+            });
+            
+            const savedRefreshToken = refreshToken ? await findToken({
+              userId: mongoUserId,
+              type: 'oauth_refresh', 
+              identifier: `${identifier}:refresh`
+            }) : null;
+
+            logger.info('[aresStrategy] ARES tokens stored and verified', {
               mongoUserId,
               hasRefreshToken: !!refreshToken,
+              accessTokenSaved: !!savedAccessToken,
+              refreshTokenSaved: !!savedRefreshToken,
+              accessTokenId: savedAccessToken?._id?.toString(),
+              refreshTokenId: savedRefreshToken?._id?.toString(),
+              accessTokenExpiry: savedAccessToken?.expiresAt?.toISOString(),
+              refreshTokenExpiry: savedRefreshToken?.expiresAt?.toISOString(),
               timestamp: new Date().toISOString(),
             });
+
+            // If tokens weren't saved, something is wrong
+            if (!savedAccessToken) {
+              logger.error('[aresStrategy] CRITICAL: Access token not found after creation!', {
+                mongoUserId,
+                identifier
+              });
+            }
+            if (refreshToken && !savedRefreshToken) {
+              logger.error('[aresStrategy] CRITICAL: Refresh token not found after creation!', {
+                mongoUserId,
+                identifier: `${identifier}:refresh`
+              });
+            }
 
             return done(null, user);
 
