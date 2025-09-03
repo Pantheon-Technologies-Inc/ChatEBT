@@ -45,15 +45,15 @@ module.exports = () => {
         if (!response.ok) {
           logger.error('[aresStrategy] Failed to fetch user profile', {
             status: response.status,
-            statusText: response.statusText
+            statusText: response.statusText,
           });
           throw new Error(`Failed to fetch user profile: ${response.status}`);
         }
 
         const userData = await response.json();
-        logger.info('[aresStrategy] User data received', { 
+        logger.info('[aresStrategy] User data received', {
           userId: userData.id,
-          email: userData.email 
+          email: userData.email,
         });
 
         // Create profile object
@@ -85,7 +85,7 @@ module.exports = () => {
               aresUserId: userData.id,
               mongoUserId,
               email: user.email,
-              hasRefreshToken: !!refreshToken
+              hasRefreshToken: !!refreshToken,
             });
 
             // Create token handler with database methods
@@ -99,13 +99,13 @@ module.exports = () => {
             const { deleteTokens } = require('~/models');
             const deleteResults = await Promise.all([
               deleteTokens({ userId: mongoUserId, identifier }),
-              deleteTokens({ userId: mongoUserId, identifier: `${identifier}:refresh` })
+              deleteTokens({ userId: mongoUserId, identifier: `${identifier}:refresh` }),
             ]);
 
-            logger.info('[aresStrategy] Cleaned up existing ARES tokens', { 
+            logger.info('[aresStrategy] Cleaned up existing ARES tokens', {
               mongoUserId,
               deletedAccessTokens: deleteResults[0]?.deletedCount || 0,
-              deletedRefreshTokens: deleteResults[1]?.deletedCount || 0
+              deletedRefreshTokens: deleteResults[1]?.deletedCount || 0,
             });
 
             // Store access token
@@ -129,18 +129,20 @@ module.exports = () => {
             }
 
             // Verify tokens were actually saved by checking database
-            const { findToken } = require('~/models');
+            // Note: findToken is already imported at the top of the file
             const savedAccessToken = await findToken({
               userId: mongoUserId,
               type: 'oauth',
-              identifier
+              identifier,
             });
-            
-            const savedRefreshToken = refreshToken ? await findToken({
-              userId: mongoUserId,
-              type: 'oauth_refresh', 
-              identifier: `${identifier}:refresh`
-            }) : null;
+
+            const savedRefreshToken = refreshToken
+              ? await findToken({
+                  userId: mongoUserId,
+                  type: 'oauth_refresh',
+                  identifier: `${identifier}:refresh`,
+                })
+              : null;
 
             logger.info('[aresStrategy] ARES tokens stored and verified', {
               mongoUserId,
@@ -158,18 +160,17 @@ module.exports = () => {
             if (!savedAccessToken) {
               logger.error('[aresStrategy] CRITICAL: Access token not found after creation!', {
                 mongoUserId,
-                identifier
+                identifier,
               });
             }
             if (refreshToken && !savedRefreshToken) {
               logger.error('[aresStrategy] CRITICAL: Refresh token not found after creation!', {
                 mongoUserId,
-                identifier: `${identifier}:refresh`
+                identifier: `${identifier}:refresh`,
               });
             }
 
             return done(null, user);
-
           } catch (tokenError) {
             console.error('[aresStrategy] CRITICAL TOKEN STORAGE FAILURE:');
             console.error('Error message:', tokenError.message);
@@ -177,26 +178,25 @@ module.exports = () => {
             console.error('User ID:', user._id?.toString());
             console.error('Access token length:', accessToken?.length);
             console.error('Refresh token length:', refreshToken?.length);
-            
+
             logger.error('[aresStrategy] Failed to store ARES tokens', {
               error: tokenError.message,
               userId: user._id?.toString(),
               stack: tokenError.stack,
               hasAccessToken: !!accessToken,
-              hasRefreshToken: !!refreshToken
+              hasRefreshToken: !!refreshToken,
             });
-            
+
             // Continue with login even if token storage fails
             // User will be prompted to re-authenticate when they try to access ARES resources
             logger.warn('[aresStrategy] Continuing with login despite token storage failure');
             return done(null, user);
           }
         });
-
       } catch (error) {
         logger.error('[aresStrategy] OAuth strategy error', {
           error: error.message,
-          stack: error.stack
+          stack: error.stack,
         });
         return done(error, null);
       }
