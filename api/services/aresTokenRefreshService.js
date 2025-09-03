@@ -183,6 +183,17 @@ class AresTokenRefreshService {
       const Token = mongoose.models.Token;
 
       // Find ARES access tokens that expire soon and belong to recently active users
+      // First, let's see if ANY ARES tokens exist at all
+      const allAresTokens = await Token.find({
+        type: 'oauth',
+        identifier: 'ares'
+      }).lean();
+      
+      console.log(`[DEBUG] Total ARES tokens in database: ${allAresTokens.length}`);
+      if (allAresTokens.length > 0) {
+        console.log(`[DEBUG] Sample token - userId: ${allAresTokens[0].userId}, expires: ${allAresTokens[0].expiresAt}, created: ${allAresTokens[0].createdAt}`);
+      }
+
       logger.info('[aresTokenRefresh] Executing token search query', {
         expiryThreshold: expiryThreshold.toISOString(),
         activityThreshold: activityThreshold.toISOString()
@@ -195,6 +206,11 @@ class AresTokenRefreshService {
         createdAt: { $gte: activityThreshold } // Token created within 30 days (indicates recent activity)
       }).lean();
 
+      console.log(`[DEBUG] Database query found ${tokens.length} tokens`);
+      if (tokens.length > 0) {
+        console.log(`[DEBUG] First token: userId=${tokens[0].userId}, expires=${tokens[0].expiresAt}`);
+      }
+      
       logger.info('[aresTokenRefresh] Database query completed', {
         foundCount: tokens.length,
         tokens: tokens.map(t => ({
