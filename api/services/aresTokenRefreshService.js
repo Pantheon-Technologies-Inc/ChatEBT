@@ -82,8 +82,8 @@ class AresTokenRefreshService {
         searchCriteria: {
           type: 'oauth',
           identifier: 'ares',
-          expiresAt: `<= ${fiveMinutesFromNow.toISOString()}`,
-          createdAt: `>= ${thirtyDaysAgo.toISOString()}`
+          expiresAt: `<= ${fiveMinutesFromNow.toISOString()}`
+          // Note: Removed restrictive activity threshold - now refreshes all expiring tokens
         }
       });
 
@@ -199,16 +199,19 @@ class AresTokenRefreshService {
         activityThreshold: activityThreshold.toISOString()
       });
 
+      // FIXED: Remove the restrictive activityThreshold filter that was preventing token refresh
+      // The activity check should be done differently, not based on token creation time
       const tokens = await Token.find({
         type: 'oauth',
         identifier: 'ares',
-        expiresAt: { $lte: expiryThreshold }, // Expires within 5 minutes
-        createdAt: { $gte: activityThreshold } // Token created within 30 days (indicates recent activity)
+        expiresAt: { $lte: expiryThreshold } // Only check if token expires within 5 minutes
+        // REMOVED: createdAt: { $gte: activityThreshold } - this prevented tokens from being found
       }).lean();
 
       console.log(`[DEBUG] Database query found ${tokens.length} tokens`);
       if (tokens.length > 0) {
         console.log(`[DEBUG] First token: userId=${tokens[0].userId}, expires=${tokens[0].expiresAt}`);
+        console.log(`[DEBUG] Token expires in ${Math.round((tokens[0].expiresAt - new Date()) / 60000)} minutes`);
       }
       
       logger.info('[aresTokenRefresh] Database query completed', {
@@ -216,7 +219,8 @@ class AresTokenRefreshService {
         tokens: tokens.map(t => ({
           userId: t.userId,
           expiresAt: t.expiresAt,
-          createdAt: t.createdAt
+          createdAt: t.createdAt,
+          minutesUntilExpiry: Math.round((t.expiresAt - new Date()) / 60000)
         }))
       });
 
