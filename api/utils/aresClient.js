@@ -26,6 +26,7 @@ async function performDirectAresRefresh(userId, identifier, refresh_token) {
       refresh_token: refresh_token,
       client_id: process.env.ARES_CLIENT_ID,
       client_secret: process.env.ARES_CLIENT_SECRET,
+      redirect_uri: `${process.env.DOMAIN_SERVER}/oauth/ares/callback`,
     };
 
     logger.info('[aresClient] Making ARES token refresh request', {

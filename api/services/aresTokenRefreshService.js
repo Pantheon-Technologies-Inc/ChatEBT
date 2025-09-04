@@ -11,7 +11,7 @@ class AresTokenRefreshService {
   constructor() {
     this.intervalId = null;
     this.isRunning = false;
-    this.refreshInterval = 30 * 1000; // 30 seconds for testing
+    this.refreshInterval = 2 * 60 * 1000; // 2 minutes for testing (will change back to 15 min after verification)
     this.userActivityThreshold = 30 * 24 * 60 * 60 * 1000; // 30 days
   }
 
