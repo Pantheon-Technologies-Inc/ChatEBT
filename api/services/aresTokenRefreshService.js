@@ -11,7 +11,7 @@ class AresTokenRefreshService {
   constructor() {
     this.intervalId = null;
     this.isRunning = false;
-    this.refreshInterval = 15 * 60 * 1000; // 15 minutes
+    this.refreshInterval = 30 * 1000; // 30 seconds for testing
     this.userActivityThreshold = 30 * 24 * 60 * 60 * 1000; // 30 days
   }
 
@@ -310,8 +310,16 @@ class AresTokenRefreshService {
         return { success: false, skipped: true, reason: 'refresh_token_expired' };
       }
 
-      // Use the existing getValidAresToken function which handles refresh logic
-      const newAccessToken = await getValidAresToken(userId);
+      // For missing access tokens, directly perform the refresh using the refresh token
+      if (accessToken._needsRefresh) {
+        logger.info('[aresTokenRefresh] Access token missing, performing direct refresh using refresh token', { userId });
+        const { performTokenRefresh } = require('~/utils/aresClient');
+        const newAccessToken = await performTokenRefresh(userId, 'ares');
+        return { success: true };
+      } else {
+        // Use the existing getValidAresToken function for normal expiry cases
+        const newAccessToken = await getValidAresToken(userId);
+      }
       
       if (newAccessToken) {
         logger.info('[aresTokenRefresh] Token refreshed successfully', {

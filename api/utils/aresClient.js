@@ -576,4 +576,5 @@ module.exports = {
   getAresUserProfile,
   cleanupTokens,
   hasValidAresTokens,
+  performTokenRefresh,
 };
