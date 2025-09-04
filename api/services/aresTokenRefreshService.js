@@ -199,32 +199,74 @@ class AresTokenRefreshService {
         activityThreshold: activityThreshold.toISOString()
       });
 
-      // FIXED: Remove the restrictive activityThreshold filter that was preventing token refresh
-      // The activity check should be done differently, not based on token creation time
-      const tokens = await Token.find({
+      // Look for access tokens that expire within 5 minutes
+      const expiringTokens = await Token.find({
         type: 'oauth',
         identifier: 'ares',
-        expiresAt: { $lte: expiryThreshold } // Only check if token expires within 5 minutes
-        // REMOVED: createdAt: { $gte: activityThreshold } - this prevented tokens from being found
+        expiresAt: { $lte: expiryThreshold }
       }).lean();
 
-      console.log(`[DEBUG] Database query found ${tokens.length} tokens`);
-      if (tokens.length > 0) {
-        console.log(`[DEBUG] First token: userId=${tokens[0].userId}, expires=${tokens[0].expiresAt}`);
-        console.log(`[DEBUG] Token expires in ${Math.round((tokens[0].expiresAt - new Date()) / 60000)} minutes`);
+      console.log(`[DEBUG] Found ${expiringTokens.length} expiring access tokens`);
+      
+      // ALSO look for users who have refresh tokens but no access tokens (tokens already expired/deleted)
+      const refreshTokens = await Token.find({
+        type: 'oauth_refresh', 
+        identifier: 'ares:refresh',
+        expiresAt: { $gt: new Date() } // Only valid refresh tokens
+      }).lean();
+
+      console.log(`[DEBUG] Found ${refreshTokens.length} valid refresh tokens`);
+
+      // For each refresh token, check if user has an access token
+      const missingAccessTokens = [];
+      for (const refreshToken of refreshTokens) {
+        const hasAccessToken = await Token.findOne({
+          userId: refreshToken.userId,
+          type: 'oauth',
+          identifier: 'ares',
+          expiresAt: { $gt: new Date() } // Only valid access tokens
+        }).lean();
+
+        if (!hasAccessToken) {
+          console.log(`[DEBUG] User ${refreshToken.userId} has valid refresh token but no access token - needs refresh`);
+          // Create a virtual "expired" access token entry for refresh processing
+          missingAccessTokens.push({
+            userId: refreshToken.userId,
+            type: 'oauth',
+            identifier: 'ares', 
+            expiresAt: new Date(Date.now() - 60000), // 1 minute ago (expired)
+            createdAt: refreshToken.createdAt,
+            _needsRefresh: true
+          });
+        }
+      }
+
+      const allTokensNeedingRefresh = [...expiringTokens, ...missingAccessTokens];
+      console.log(`[DEBUG] Total tokens needing refresh: ${allTokensNeedingRefresh.length}`);
+
+      if (allTokensNeedingRefresh.length > 0) {
+        console.log(`[DEBUG] First token: userId=${allTokensNeedingRefresh[0].userId}, expires=${allTokensNeedingRefresh[0].expiresAt}`);
+        if (!allTokensNeedingRefresh[0]._needsRefresh) {
+          console.log(`[DEBUG] Token expires in ${Math.round((allTokensNeedingRefresh[0].expiresAt - new Date()) / 60000)} minutes`);
+        } else {
+          console.log(`[DEBUG] Token missing - needs refresh using refresh token`);
+        }
       }
       
       logger.info('[aresTokenRefresh] Database query completed', {
-        foundCount: tokens.length,
-        tokens: tokens.map(t => ({
+        foundCount: allTokensNeedingRefresh.length,
+        expiringTokens: expiringTokens.length,
+        missingTokens: missingAccessTokens.length,
+        tokens: allTokensNeedingRefresh.map(t => ({
           userId: t.userId,
           expiresAt: t.expiresAt,
           createdAt: t.createdAt,
-          minutesUntilExpiry: Math.round((t.expiresAt - new Date()) / 60000)
+          needsRefresh: t._needsRefresh || false,
+          minutesUntilExpiry: t._needsRefresh ? 'expired' : Math.round((t.expiresAt - new Date()) / 60000)
         }))
       });
 
-      return tokens;
+      return allTokensNeedingRefresh;
     } catch (error) {
       logger.error('[aresTokenRefresh] Error finding tokens needing refresh', {
         error: error.message
