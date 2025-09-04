@@ -104,9 +104,15 @@ async function performDirectAresRefresh(userId, identifier, refresh_token) {
       minutesFromNow: Math.round((expiresAt - now) / 60000)
     });
 
-    // Delete the old access token
+    // Delete the old access token specifically 
     logger.info('[aresClient] Deleting old access token', { userId, identifier });
-    const deletedCount = await deleteTokens({ userId, identifier: identifier });
+    const mongoose = require('mongoose');
+    const Token = mongoose.models.Token;
+    const deletedCount = await Token.deleteMany({
+      userId: userId,
+      type: 'oauth', 
+      identifier: identifier
+    });
     
     logger.info('[aresClient] Deleted old access token', { 
       userId,
@@ -145,9 +151,13 @@ async function performDirectAresRefresh(userId, identifier, refresh_token) {
       
       const encryptedRefreshToken = await encryptV2(tokenData.refresh_token);
       
-      // Delete old refresh token
+      // Delete old refresh token specifically
       logger.info('[aresClient] Deleting old refresh token', { userId });
-      const deletedRefreshCount = await deleteTokens({ userId, identifier: `${identifier}:refresh` });
+      const deletedRefreshCount = await Token.deleteMany({
+        userId: userId,
+        type: 'oauth_refresh',
+        identifier: `${identifier}:refresh`
+      });
       logger.info('[aresClient] Deleted old refresh token', { 
         userId,
         deletedCount: deletedRefreshCount.deletedCount || deletedRefreshCount
@@ -349,6 +359,9 @@ async function performTokenRefresh(userId, identifier) {
     });
 
     // Verify the token was actually updated in the database
+    // Small delay to ensure database operations are completed
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
     try {
       const updatedToken = await findToken({
         userId,
@@ -513,7 +526,8 @@ async function getAresUserProfile(userId) {
  */
 async function cleanupTokens(userId) {
   try {
-    const { deleteTokens } = require('~/models');
+    const mongoose = require('mongoose');
+    const Token = mongoose.models.Token;
 
     logger.info('[aresClient] Starting token cleanup', { 
       userId,
@@ -522,15 +536,15 @@ async function cleanupTokens(userId) {
     });
 
     const results = await Promise.all([
-      deleteTokens({ userId, identifier: 'ares' }),
-      deleteTokens({ userId, identifier: 'ares:refresh' })
+      Token.deleteMany({ userId: userId, type: 'oauth', identifier: 'ares' }),
+      Token.deleteMany({ userId: userId, type: 'oauth_refresh', identifier: 'ares:refresh' })
     ]);
 
     logger.info('[aresClient] Token cleanup completed', { 
       userId,
-      accessTokensDeleted: results[0],
-      refreshTokensDeleted: results[1],
-      totalDeleted: results[0] + results[1]
+      accessTokensDeleted: results[0].deletedCount || results[0],
+      refreshTokensDeleted: results[1].deletedCount || results[1],
+      totalDeleted: (results[0].deletedCount || results[0]) + (results[1].deletedCount || results[1])
     });
 
   } catch (error) {
