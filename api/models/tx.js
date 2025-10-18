@@ -155,9 +155,10 @@ const tokenValues = Object.assign(
 // ARES Credit Configuration
 // Adjust this multiplier based on ARES's credit pricing
 // If 1 ARES credit = $0.001 USD, then multiplier should be 1
+// If 1 ARES credit = $0.002 USD, then multiplier should be 2
 // If 1 ARES credit = $0.01 USD, then multiplier should be 10
 // If 1 ARES credit = $0.02 USD, then multiplier should be 20
-const ARES_CREDIT_TO_USD_MULTIPLIER = 20; // 1 ARES credit = $0.02 USD
+const ARES_CREDIT_TO_USD_MULTIPLIER = 2; // 1 ARES credit = $0.002 USD
 
 /**
  * ARES-specific token values that convert USD rates to ARES credits

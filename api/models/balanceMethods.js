@@ -153,7 +153,7 @@ const checkAresBalance = async ({ req, res, txData }) => {
 
     // Calculate USD cost first, then convert to ARES credits
     const usdCost = (txData.amount * usdRate) / 1000000;
-    const exactCredits = usdCost / 0.02; // Convert USD to ARES credits (1 credit = $0.02)
+    const exactCredits = usdCost / 0.002; // Convert USD to ARES credits (1 credit = $0.002)
 
     // Use same fractional credit handling as createAresTransaction
     let aresCreditsRequired;
