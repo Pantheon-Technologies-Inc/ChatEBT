@@ -231,8 +231,8 @@ function calculateAresTokenValue(txn) {
   // Calculate USD cost first
   const usdCost = (Math.abs(txn.rawAmount) * usdRate) / 1000000;
 
-  // Convert USD to ARES credits (1 ARES credit = $0.02)
-  const aresCredits = usdCost / 0.02;
+  // Convert USD to ARES credits (1 ARES credit = $0.002)
+  const aresCredits = usdCost / 0.002;
 
   txn.rate = usdRate; // Store the original USD rate for logging
   txn.tokenValue = txn.rawAmount < 0 ? -aresCredits : aresCredits; // Store as ARES credits with correct sign
