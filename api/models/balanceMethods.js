@@ -155,14 +155,12 @@ const checkAresBalance = async ({ req, res, txData }) => {
     const usdCost = (txData.amount * usdRate) / 1000000;
     const exactCredits = usdCost / 0.002; // Convert USD to ARES credits (1 credit = $0.002)
 
-    // Use same fractional credit handling as createAresTransaction
+    // Always round up for simpler billing (except for very tiny amounts)
     let aresCreditsRequired;
-    if (exactCredits < 0.01) {
-      aresCreditsRequired = 0; // Too small to charge
-    } else if (exactCredits < 1) {
-      aresCreditsRequired = Math.max(0.01, Math.round(exactCredits * 100) / 100);
+    if (exactCredits < 0.001) {
+      aresCreditsRequired = 0; // Too small to charge (less than 0.001 credits)
     } else {
-      aresCreditsRequired = Math.round(exactCredits * 100) / 100;
+      aresCreditsRequired = Math.ceil(exactCredits); // Always round UP to nearest integer
     }
 
     logger.debug('[checkAresBalance] Calling ARES user API for balance', { userId });

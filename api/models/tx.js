@@ -76,20 +76,20 @@ const tokenValues = Object.assign(
     '4k': { prompt: 1.5, completion: 2 },
     '16k': { prompt: 3, completion: 4 },
     'gpt-3.5-turbo-1106': { prompt: 1, completion: 2 },
-    'gpt-5': { prompt: 1.25, completion: 10 },
-    'o4-mini': { prompt: 1.1, completion: 4.4 },
-    'o3-mini': { prompt: 1.1, completion: 4.4 },
-    o3: { prompt: 2, completion: 8 },
-    'o1-mini': { prompt: 1.1, completion: 4.4 },
-    'o1-preview': { prompt: 15, completion: 60 },
-    o1: { prompt: 15, completion: 60 },
-    'gpt-4.1-nano': { prompt: 0.1, completion: 0.4 },
-    'gpt-4.1-mini': { prompt: 0.4, completion: 1.6 },
-    'gpt-4.1': { prompt: 2, completion: 8 },
+    'gpt-5': { prompt: 1.25, completion: 10.00 },
+    'o4-mini': { prompt: 1.10, completion: 4.40 },
+    'o3-mini': { prompt: 1.10, completion: 4.40 },
+    o3: { prompt: 2.00, completion: 8.00 },
+    'o1-mini': { prompt: 1.10, completion: 4.40 },
+    'o1-preview': { prompt: 15.00, completion: 60.00 },
+    o1: { prompt: 15.00, completion: 60.00 },
+    'gpt-4.1-nano': { prompt: 0.10, completion: 0.40 },
+    'gpt-4.1-mini': { prompt: 0.40, completion: 1.60 },
+    'gpt-4.1': { prompt: 2.00, completion: 8.00 },
     'gpt-4.5': { prompt: 75, completion: 150 },
-    'gpt-4o-mini': { prompt: 0.15, completion: 0.6 },
-    'gpt-4o': { prompt: 2.5, completion: 10 },
-    'gpt-4o-2024-05-13': { prompt: 5, completion: 15 },
+    'gpt-4o-mini': { prompt: 0.15, completion: 0.60 },
+    'gpt-4o': { prompt: 2.50, completion: 10.00 },
+    'gpt-4o-2024-05-13': { prompt: 5.00, completion: 15.00 },
     'gpt-4-1106': { prompt: 10, completion: 30 },
     'gpt-3.5-turbo-0125': { prompt: 0.5, completion: 1.5 },
     'claude-3-opus': { prompt: 15, completion: 75 },
@@ -332,7 +332,7 @@ const getMultiplier = ({
   }
 
   if (valueKey && tokenType) {
-    return tokenValues[valueKey][tokenType] ?? defaultRate;
+    return tokenValues[valueKey]?.[tokenType] ?? defaultRate;
   }
 
   if (!tokenType || !model) {

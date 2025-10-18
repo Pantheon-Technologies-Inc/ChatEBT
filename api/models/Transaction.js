@@ -318,28 +318,24 @@ async function createAresTransaction(txData) {
   // Convert token cost to ARES credits (using absolute value since we're deducting)
   const exactCredits = Math.abs(transaction.tokenValue);
 
-  // Handle fractional credits properly
+  // Always round up for simpler billing (except for very tiny amounts)
   let aresCreditsToDeduct;
-  if (exactCredits < 0.01) {
-    // For very small amounts (less than $0.0002 worth), don't charge
+  if (exactCredits < 0.001) {
+    // For very small amounts (less than 0.001 credits), don't charge
     aresCreditsToDeduct = 0;
     logger.debug('[createAresTransaction] Amount too small to charge', {
       user: transaction.user,
       exactCredits,
       tokenType: transaction.tokenType,
     });
-  } else if (exactCredits < 1) {
-    // For fractional credits, round to 2 decimal places and set minimum of 0.01 credits
-    aresCreditsToDeduct = Math.max(0.01, Math.round(exactCredits * 100) / 100);
-    logger.debug('[createAresTransaction] Fractional credit handling', {
+  } else {
+    // Always round UP to nearest integer
+    aresCreditsToDeduct = Math.ceil(exactCredits);
+    logger.debug('[createAresTransaction] Integer credit rounding (rounded up)', {
       user: transaction.user,
       exactCredits,
       aresCreditsToDeduct,
-      minimumApplied: exactCredits < 0.01,
     });
-  } else {
-    // For amounts >= 1 credit, round to 2 decimal places
-    aresCreditsToDeduct = Math.round(exactCredits * 100) / 100;
   }
 
   // The transaction.tokenValue is already in ARES credits
