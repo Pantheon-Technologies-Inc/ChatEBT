@@ -24,7 +24,7 @@ async function deductAresCredits({ userId, credits, usage, model, conversationId
     console.log('\n🚀 ===== ARES API CALL DEBUG =====');
     console.log(`User ID: ${userId}`);
     console.log(`Credits to Deduct: ${credits}`);
-    console.log(`USD Equivalent: $${(credits * 0.02).toFixed(4)}`);
+    console.log(`USD Equivalent: $${(credits * 0.002).toFixed(4)}`);
     console.log(`Usage Description: ${usageDescription}`);
     console.log(`Model: ${model}`);
     console.log(`Conversation ID: ${conversationId}`);
@@ -61,7 +61,7 @@ async function deductAresCredits({ userId, credits, usage, model, conversationId
       userId,
       credits,
       usage,
-      usdEquivalent: `$${(credits * 0.02).toFixed(4)}`,
+      usdEquivalent: `$${(credits * 0.002).toFixed(4)}`,
       error: error.message,
       httpStatus: error.response?.status,
       responseData: error.response?.data,
@@ -357,20 +357,20 @@ async function createAresTransaction(txData) {
   console.log(`Token Value (ARES Credits): ${transaction.tokenValue}`);
   console.log(`Exact Credits: ${exactCredits}`);
   console.log(`Credits to Deduct: ${aresCreditsToDeduct}`);
-  console.log(`USD Equivalent: $${(aresCreditsToDeduct * 0.02).toFixed(6)}`);
+  console.log(`USD Equivalent: $${(aresCreditsToDeduct * 0.002).toFixed(6)}`);
   console.log(`Will Charge: ${aresCreditsToDeduct > 0}`);
   console.log('\n📊 Step-by-Step Calculation:');
   console.log(
     `1. ${Math.abs(transaction.rawAmount)} tokens × $${transaction.rate} USD rate = $${((Math.abs(transaction.rawAmount) * transaction.rate) / 1000000).toFixed(6)}`,
   );
   console.log(
-    `2. $${((Math.abs(transaction.rawAmount) * transaction.rate) / 1000000).toFixed(6)} ÷ $0.02 = ${exactCredits} ARES credits`,
+    `2. $${((Math.abs(transaction.rawAmount) * transaction.rate) / 1000000).toFixed(6)} ÷ $0.002 = ${exactCredits} ARES credits`,
   );
   console.log(
     `3. ${exactCredits} exact credits → ${aresCreditsToDeduct} final credits (after fractional logic)`,
   );
   console.log(
-    `4. ${aresCreditsToDeduct} credits × $0.02 = $${(aresCreditsToDeduct * 0.02).toFixed(6)} USD equivalent`,
+    `4. ${aresCreditsToDeduct} credits × $0.002 = $${(aresCreditsToDeduct * 0.002).toFixed(6)} USD equivalent`,
   );
   console.log('===============================================\n');
 
