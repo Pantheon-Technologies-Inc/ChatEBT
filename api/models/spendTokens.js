@@ -19,15 +19,12 @@ const { createAresTransaction, createStructuredTransaction } = require('./Transa
  * @throws {Error} - Throws an error if there's an issue creating the transactions.
  */
 const spendTokens = async (txData, tokenUsage) => {
-  // Debug logging to catch undefined tokenUsage
-  console.log('🔍 SPEND TOKENS CALLED:', { txData, tokenUsage });
   if (!tokenUsage) {
     logger.error('[spendTokens] tokenUsage is undefined!', { txData });
     return;
   }
 
   const { promptTokens, completionTokens } = tokenUsage;
-  console.log('🔍 TOKEN USAGE DEBUG:', { promptTokens, completionTokens, tokenUsage });
 
   // Skip charging for title generation to avoid multiple deductions
   if (txData.context === 'title') {
@@ -53,27 +50,22 @@ const spendTokens = async (txData, tokenUsage) => {
   let prompt, completion;
   try {
     if (promptTokens !== undefined) {
-      console.log('🚀 Creating PROMPT transaction for', promptTokens, 'tokens');
       prompt = await createAresTransaction({
         ...txData,
         tokenType: 'prompt',
         rawAmount: promptTokens === 0 ? 0 : -Math.max(promptTokens, 0),
       });
-      console.log('✅ PROMPT transaction result:', prompt);
     }
 
     if (completionTokens !== undefined) {
-      console.log('🚀 Creating COMPLETION transaction for', completionTokens, 'tokens');
       completion = await createAresTransaction({
         ...txData,
         tokenType: 'completion',
         rawAmount: completionTokens === 0 ? 0 : -Math.max(completionTokens, 0),
       });
-      console.log('✅ COMPLETION transaction result:', completion);
     }
 
     if (prompt || completion) {
-      console.log('📊 TRANSACTION RESULTS DEBUG:', { prompt, completion });
       logger.debug('[spendTokens] Transaction data record against balance:', {
         user: txData.user,
         promptResult: prompt,
@@ -139,8 +131,6 @@ const spendStructuredTokens = async (txData, tokenUsage) => {
   );
   let prompt, completion;
   try {
-    console.log('🔧 STRUCTURED TOKENS DEBUG:', { promptTokens, completionTokens });
-
     if (promptTokens) {
       // Safety check for promptTokens structure
       if (typeof promptTokens !== 'object') {
@@ -149,45 +139,41 @@ const spendStructuredTokens = async (txData, tokenUsage) => {
       }
       const { input = 0, write = 0, read = 0 } = promptTokens;
       const totalPromptTokens = input + write + read;
-      console.log('🚀 Creating ARES PROMPT transaction:', { input, write, read, totalPromptTokens });
+
+      // Pass individual token counts so different rates can be applied
       prompt = await createAresTransaction({
         ...txData,
         tokenType: 'prompt',
         rawAmount: -totalPromptTokens,
+        inputTokens: input,
+        writeTokens: write,
+        readTokens: read,
       });
-      console.log('✅ STRUCTURED PROMPT result:', prompt);
     }
 
     if (completionTokens) {
-      console.log('🚀 Creating STRUCTURED COMPLETION transaction:', completionTokens);
       try {
         completion = await createAresTransaction({
           ...txData,
           tokenType: 'completion',
           rawAmount: -completionTokens,
         });
-        console.log('✅ STRUCTURED COMPLETION result:', completion);
+        console.log(`💰 Completion: ${completionTokens} tokens = ${completion?.rate ? ((completionTokens * completion.rate) / 1000000).toFixed(6) : 'N/A'} USD = ${Math.abs(completion?.completion || 0)} credits`);
       } catch (completionError) {
-        console.error('❌ STRUCTURED COMPLETION ERROR:', completionError);
+        logger.error('[spendStructuredTokens] Completion error:', completionError);
         completion = null;
       }
     }
 
     if (prompt || completion) {
-      console.log('📊 STRUCTURED TRANSACTION RESULTS:', { prompt, completion });
-      try {
-        logger.debug('[spendStructuredTokens] Transaction data record against balance:', {
-          user: txData.user,
-          promptResult: prompt,
-          promptRate: prompt?.rate,
-          completionResult: completion,
-          completionRate: completion?.rate,
-          balance: completion?.balance ?? prompt?.balance,
-        });
-      } catch (logError) {
-        console.error('❌ Logging error in spendStructuredTokens:', logError);
-        console.log('Debug data:', { prompt, completion });
-      }
+      logger.debug('[spendStructuredTokens] Transaction data record against balance:', {
+        user: txData.user,
+        promptResult: prompt,
+        promptRate: prompt?.rate,
+        completionResult: completion,
+        completionRate: completion?.rate,
+        balance: completion?.balance ?? prompt?.balance,
+      });
     } else {
       logger.debug('[spendStructuredTokens] No transactions incurred against balance');
     }

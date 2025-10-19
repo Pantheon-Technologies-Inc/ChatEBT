@@ -216,6 +216,62 @@ function calculateAresTokenValue(txn) {
   }
   const { valueKey, tokenType, model, endpointTokenConfig } = txn;
 
+  // Handle structured tokens (with cache read/write) for prompt type
+  if (tokenType === 'prompt' && (txn.inputTokens || txn.writeTokens || txn.readTokens)) {
+    const inputMultiplier = Math.abs(
+      getMultiplier({
+        valueKey,
+        tokenType: 'prompt',
+        model,
+        endpoint: txn.endpoint,
+        endpointTokenConfig,
+        useAresRates: false,
+      }),
+    );
+
+    const writeMultiplier =
+      getCacheMultiplier({ cacheType: 'write', model, endpoint: txn.endpoint, endpointTokenConfig, valueKey }) ?? inputMultiplier;
+    const readMultiplier =
+      getCacheMultiplier({ cacheType: 'read', model, endpoint: txn.endpoint, endpointTokenConfig, valueKey }) ?? inputMultiplier;
+
+    // Calculate USD cost for each token type
+    const inputCost = (Math.abs(txn.inputTokens || 0) * inputMultiplier) / 1000000;
+    const writeCost = (Math.abs(txn.writeTokens || 0) * writeMultiplier) / 1000000;
+    const readCost = (Math.abs(txn.readTokens || 0) * readMultiplier) / 1000000;
+    const totalUsdCost = inputCost + writeCost + readCost;
+
+    // Convert USD to ARES credits (1 ARES credit = $0.002)
+    const aresCredits = totalUsdCost / 0.002;
+
+    const totalPromptTokens =
+      Math.abs(txn.inputTokens || 0) +
+      Math.abs(txn.writeTokens || 0) +
+      Math.abs(txn.readTokens || 0);
+
+    // Calculate weighted average rate
+    if (totalPromptTokens > 0) {
+      txn.rate =
+        (Math.abs(inputMultiplier * (txn.inputTokens || 0)) +
+          Math.abs(writeMultiplier * (txn.writeTokens || 0)) +
+          Math.abs(readMultiplier * (txn.readTokens || 0))) /
+        totalPromptTokens;
+    } else {
+      txn.rate = inputMultiplier;
+    }
+
+    txn.rateDetail = {
+      input: inputMultiplier,
+      write: writeMultiplier,
+      read: readMultiplier,
+    };
+
+    console.log(`💎 Prompt: ${txn.inputTokens || 0} input + ${txn.writeTokens || 0} write + ${txn.readTokens || 0} cached = $${totalUsdCost.toFixed(6)} = ${aresCredits.toFixed(2)} credits`);
+
+    txn.tokenValue = txn.rawAmount < 0 ? -aresCredits : aresCredits;
+    return;
+  }
+
+  // Standard token calculation (non-structured)
   // Get USD rate for the model (NOT ARES rates - ARES is just a wallet!)
   const usdRate = Math.abs(
     getMultiplier({

@@ -192,6 +192,37 @@ const cacheTokenValues = {
   'claude-3-haiku': { write: 0.3, read: 0.03 },
   'claude-sonnet-4': { write: 3.75, read: 0.3 },
   'claude-opus-4': { write: 18.75, read: 1.5 },
+  // OpenAI cache pricing (write = regular input, read = cached input)
+  'o3': { write: 2.0, read: 0.50 },
+  'o3-pro': { write: 20.0, read: 20.0 }, // No caching
+  'o3-deep-research': { write: 10.0, read: 2.50 },
+  'o3-mini': { write: 1.10, read: 0.55 },
+  'o4-mini': { write: 1.10, read: 0.275 },
+  'o4-mini-deep-research': { write: 2.0, read: 0.50 },
+  'o1': { write: 15.0, read: 7.50 },
+  'o1-pro': { write: 150.0, read: 150.0 }, // No caching
+  'o1-mini': { write: 1.10, read: 0.55 },
+  'o1-preview': { write: 15.0, read: 15.0 }, // No caching for preview
+  'gpt-5': { write: 1.25, read: 0.125 },
+  'gpt-5-mini': { write: 0.25, read: 0.025 },
+  'gpt-5-nano': { write: 0.05, read: 0.005 },
+  'gpt-5-chat-latest': { write: 1.25, read: 0.125 },
+  'gpt-5-codex': { write: 1.25, read: 0.125 },
+  'gpt-5-pro': { write: 15.0, read: 15.0 }, // No caching
+  'gpt-4.1': { write: 2.0, read: 0.50 },
+  'gpt-4.1-mini': { write: 0.40, read: 0.10 },
+  'gpt-4.1-nano': { write: 0.10, read: 0.025 },
+  'gpt-4o': { write: 2.50, read: 1.25 },
+  'gpt-4o-2024-05-13': { write: 5.0, read: 5.0 }, // No caching
+  'gpt-4o-mini': { write: 0.15, read: 0.075 },
+  'gpt-realtime': { write: 4.0, read: 0.40 },
+  'gpt-realtime-mini': { write: 0.60, read: 0.06 },
+  'gpt-4o-realtime-preview': { write: 5.0, read: 2.50 },
+  'gpt-4o-mini-realtime-preview': { write: 0.60, read: 0.30 },
+  'codex-mini-latest': { write: 1.50, read: 0.375 },
+  'gpt-5-search-api': { write: 1.25, read: 0.125 },
+  'gpt-image-1': { write: 5.0, read: 1.25 },
+  'gpt-image-1-mini': { write: 2.0, read: 0.20 },
 };
 
 /**

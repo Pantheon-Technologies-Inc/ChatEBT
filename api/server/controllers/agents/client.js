@@ -43,6 +43,7 @@ const { getMCPAuthMap, checkCapability, hasCustomUserVars } = require('~/server/
 const { addCacheControl, createContextHandlers } = require('~/app/clients/prompts');
 const { initializeAgent } = require('~/server/services/Endpoints/agents/agent');
 const { spendTokens, spendStructuredTokens } = require('~/models/spendTokens');
+const { getValueKey } = require('~/models/tx');
 const { encodeAndFormat } = require('~/server/services/Files/images/encode');
 const { getProviderConfig } = require('~/server/services/Endpoints');
 const BaseClient = require('~/app/clients/BaseClient');
@@ -618,14 +619,18 @@ class AgentClient extends BaseClient {
       const cache_creation = Number(usage.input_token_details?.cache_creation) || 0;
       const cache_read = Number(usage.input_token_details?.cache_read) || 0;
 
+      const modelName = usage.model ?? model ?? this.model ?? this.options.agent.model_parameters.model;
+      const endpoint = this.options.endpoint;
+
       const txMetadata = {
         context,
         conversationId: this.conversationId,
         user: this.user ?? this.options.req.user?.id,
-        endpoint: this.options.endpoint, // ✅ ADD MISSING ENDPOINT
-        valueKey: this.options.endpointType ?? this.options.endpoint, // ✅ ADD MISSING VALUEKEY
+        endpoint: endpoint,
+        // Use getValueKey to derive the correct valueKey from model name, not endpoint name
+        valueKey: getValueKey(modelName, endpoint) ?? this.options.endpointType ?? endpoint,
         endpointTokenConfig: this.options.endpointTokenConfig,
-        model: usage.model ?? model ?? this.model ?? this.options.agent.model_parameters.model,
+        model: modelName,
       };
 
       if (i > 0) {

@@ -860,15 +860,17 @@ ${convo}
       typeof this.usage.completion_tokens_details === 'object' &&
       'reasoning_tokens' in this.usage.completion_tokens_details
     ) {
-      const outputTokens = Math.abs(
-        this.usage.completion_tokens_details.reasoning_tokens - this.usage[this.outputTokensKey],
-      );
+      const reasoningTokens = this.usage.completion_tokens_details.reasoning_tokens;
+      const completionTokens = this.usage[this.outputTokensKey];
+      const outputTokens = Math.abs(reasoningTokens - completionTokens);
+
       return {
         ...this.usage.completion_tokens_details,
         [this.inputTokensKey]: this.usage[this.inputTokensKey],
         [this.outputTokensKey]: outputTokens,
       };
     }
+
     return this.usage;
   }
 
@@ -1035,32 +1037,18 @@ ${convo}
         model: this.modelOptions.model,
         conversationId: this.conversationId,
         user: this.user ?? this.options.req.user?.id,
-        endpoint: this.options.endpoint, // ✅ ADD MISSING ENDPOINT
-        valueKey: this.options.endpointType ?? this.options.endpoint, // ✅ ADD MISSING VALUEKEY
+        endpoint: this.options.endpoint,
+        valueKey: this.options.endpointType ?? this.options.endpoint,
         endpointTokenConfig: this.options.endpointTokenConfig,
       },
       { promptTokens, completionTokens },
     );
 
-    if (
-      usage &&
-      typeof usage === 'object' &&
-      'reasoning_tokens' in usage &&
-      typeof usage.reasoning_tokens === 'number'
-    ) {
-      await spendTokens(
-        {
-          context: 'reasoning',
-          model: this.modelOptions.model,
-          conversationId: this.conversationId,
-          user: this.user ?? this.options.req.user?.id,
-          endpoint: this.options.endpoint, // ✅ ADD MISSING ENDPOINT
-          valueKey: this.options.endpointType ?? this.options.endpoint, // ✅ ADD MISSING VALUEKEY
-          endpointTokenConfig: this.options.endpointTokenConfig,
-        },
-        { completionTokens: usage.reasoning_tokens },
-      );
-    }
+    // Note: Reasoning tokens are currently NOT charged (OpenAI policy)
+    // If billing is needed, uncomment below:
+    // if (usage?.reasoning_tokens) {
+    //   await spendTokens({ context: 'reasoning', ... }, { completionTokens: usage.reasoning_tokens });
+    // }
   }
 
   getTokenCountForResponse(response) {
