@@ -49,12 +49,20 @@ const spendTokens = async (txData, tokenUsage) => {
   );
   let prompt, completion;
   try {
+    let totalExactCredits = 0;
+    let promptExactCredits = 0;
+    let completionExactCredits = 0;
+
+    // Calculate both transactions without charging
     if (promptTokens !== undefined) {
       prompt = await createAresTransaction({
         ...txData,
         tokenType: 'prompt',
         rawAmount: promptTokens === 0 ? 0 : -Math.max(promptTokens, 0),
+        skipCharge: true,
       });
+      promptExactCredits = Math.abs(prompt?.tokenValue || 0);
+      totalExactCredits += promptExactCredits;
     }
 
     if (completionTokens !== undefined) {
@@ -62,7 +70,28 @@ const spendTokens = async (txData, tokenUsage) => {
         ...txData,
         tokenType: 'completion',
         rawAmount: completionTokens === 0 ? 0 : -Math.max(completionTokens, 0),
+        skipCharge: true,
       });
+      completionExactCredits = Math.abs(completion?.tokenValue || 0);
+      totalExactCredits += completionExactCredits;
+    }
+
+    // Now charge once with the total, applying rounding only once
+    if (totalExactCredits > 0) {
+      const creditsToDeduct = totalExactCredits < 0.001 ? 0 : Math.ceil(totalExactCredits);
+
+      if (creditsToDeduct > 0) {
+        const { deductAresCredits } = require('./Transaction');
+        await deductAresCredits({
+          userId: txData.user,
+          credits: creditsToDeduct,
+          usage: `${txData.model} tokens (${promptExactCredits.toFixed(3)} prompt + ${completionExactCredits.toFixed(3)} completion)`,
+          model: txData.model,
+          conversationId: txData.conversationId,
+        });
+
+        console.log(`💰 ${txData.model}: ${promptExactCredits.toFixed(3)} prompt + ${completionExactCredits.toFixed(3)} completion = ${totalExactCredits.toFixed(3)} exact → ${creditsToDeduct} credits`);
+      }
     }
 
     if (prompt || completion) {
@@ -131,6 +160,10 @@ const spendStructuredTokens = async (txData, tokenUsage) => {
   );
   let prompt, completion;
   try {
+    let totalExactCredits = 0;
+    let promptExactCredits = 0;
+    let completionExactCredits = 0;
+
     if (promptTokens) {
       // Safety check for promptTokens structure
       if (typeof promptTokens !== 'object') {
@@ -141,6 +174,7 @@ const spendStructuredTokens = async (txData, tokenUsage) => {
       const totalPromptTokens = input + write + read;
 
       // Pass individual token counts so different rates can be applied
+      // Pass skipCharge: true to calculate but not charge yet
       prompt = await createAresTransaction({
         ...txData,
         tokenType: 'prompt',
@@ -148,7 +182,12 @@ const spendStructuredTokens = async (txData, tokenUsage) => {
         inputTokens: input,
         writeTokens: write,
         readTokens: read,
+        skipCharge: true, // Don't charge yet, accumulate credits first
       });
+
+      // Get exact credits before rounding
+      promptExactCredits = Math.abs(prompt?.tokenValue || 0);
+      totalExactCredits += promptExactCredits;
     }
 
     if (completionTokens) {
@@ -157,11 +196,33 @@ const spendStructuredTokens = async (txData, tokenUsage) => {
           ...txData,
           tokenType: 'completion',
           rawAmount: -completionTokens,
+          skipCharge: true, // Don't charge yet, accumulate credits first
         });
-        console.log(`💰 Completion: ${completionTokens} tokens = ${completion?.rate ? ((completionTokens * completion.rate) / 1000000).toFixed(6) : 'N/A'} USD = ${Math.abs(completion?.completion || 0)} credits`);
+
+        // Get exact credits before rounding
+        completionExactCredits = Math.abs(completion?.tokenValue || 0);
+        totalExactCredits += completionExactCredits;
       } catch (completionError) {
         logger.error('[spendStructuredTokens] Completion error:', completionError);
         completion = null;
+      }
+    }
+
+    // Now charge once with the total, applying rounding only once
+    if (totalExactCredits > 0) {
+      const creditsToDeduct = totalExactCredits < 0.001 ? 0 : Math.ceil(totalExactCredits);
+
+      if (creditsToDeduct > 0) {
+        const { deductAresCredits } = require('./Transaction');
+        await deductAresCredits({
+          userId: txData.user,
+          credits: creditsToDeduct,
+          usage: `${txData.model} tokens (${promptExactCredits.toFixed(3)} prompt + ${completionExactCredits.toFixed(3)} completion)`,
+          model: txData.model,
+          conversationId: txData.conversationId,
+        });
+
+        console.log(`💰 Combined: ${promptExactCredits.toFixed(3)} prompt + ${completionExactCredits.toFixed(3)} completion = ${totalExactCredits.toFixed(3)} exact → ${creditsToDeduct} credits`);
       }
     }
 

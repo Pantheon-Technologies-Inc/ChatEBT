@@ -426,6 +426,18 @@ async function createAresTransaction(txData) {
   );
   console.log('===============================================\n');
 
+  // If skipCharge is true, return the transaction info without charging
+  if (txData.skipCharge) {
+    return {
+      rate: transaction.rate,
+      user: transaction.user.toString(),
+      balance: 0,
+      tokenValue: transaction.tokenValue, // Return exact credits for aggregation
+      [transaction.tokenType]: -exactCredits,
+      aresResponse: false,
+    };
+  }
+
   // Only deduct if there are actual credits to deduct
   if (aresCreditsToDeduct > 0) {
     try {
@@ -454,6 +466,7 @@ async function createAresTransaction(txData) {
         rate: transaction.rate,
         user: transaction.user.toString(),
         balance: updatedBalance,
+        tokenValue: transaction.tokenValue,
         [transaction.tokenType]: -aresCreditsToDeduct, // Negative to show deduction
         aresResponse: true, // Flag to indicate this came from ARES
       };
@@ -474,6 +487,7 @@ async function createAresTransaction(txData) {
     rate: transaction.rate,
     user: transaction.user.toString(),
     balance: 0, // We don't track internal balance anymore
+    tokenValue: transaction.tokenValue,
     [transaction.tokenType]: 0,
     aresResponse: true,
   };
