@@ -36,6 +36,7 @@ import useStepHandler from '~/hooks/SSE/useStepHandler';
 import { useAuthContext } from '~/hooks/AuthContext';
 import { MESSAGE_UPDATE_INTERVAL } from '~/common';
 import { useLiveAnnouncer } from '~/Providers';
+import { triggerCreditsRefresh } from '~/components/CreditsCounter';
 
 type TSyncData = {
   sync: boolean;
@@ -561,6 +562,9 @@ export default function useEventHandlers({
       }
 
       setIsSubmitting(false);
+
+      // Trigger credit counter refresh after successful message completion
+      triggerCreditsRefresh();
     },
     [
       navigate,

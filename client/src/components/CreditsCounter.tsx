@@ -25,12 +25,15 @@ const CreditsCounter = ({}: FreeCounterProps) => {
   const [error, setError] = useState<string | null>(null);
   const [authError, setAuthError] = useState<boolean>(false);
   const [lastAuthErrorTime, setLastAuthErrorTime] = useState<number>(0);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
 
   // Extract fetch credits into a reusable function
-  const fetchCredits = useCallback(async () => {
+  const fetchCredits = useCallback(async (showLoading = false) => {
     if (!user?.id || !isAuthenticated || !token || authError) return;
 
-    setIsLoading(true);
+    if (showLoading) {
+      setIsLoading(true);
+    }
     setError(null);
 
     try {
@@ -95,6 +98,9 @@ const CreditsCounter = ({}: FreeCounterProps) => {
       if (data.credits !== undefined) {
         setCredits(data.credits || 0);
         setAuthError(false); // Reset auth error on successful fetch
+        if (isInitialLoad) {
+          setIsInitialLoad(false);
+        }
       } else {
         console.error('No credits field in response:', data);
         setError('Invalid response format');
@@ -106,22 +112,13 @@ const CreditsCounter = ({}: FreeCounterProps) => {
         setError(error instanceof Error ? error.message : 'Unknown error');
       }
     } finally {
-      setIsLoading(false);
+      if (showLoading) {
+        setIsLoading(false);
+      }
     }
-  }, [user?.id, isAuthenticated, token, authError, lastAuthErrorTime]);
+  }, [user?.id, isAuthenticated, token, authError, lastAuthErrorTime, isInitialLoad]);
 
   useEffect(() => {
-    // Initial fetch when component mounts
-    if (isAuthenticated && user && token && !authError) {
-      // Add a small delay to prevent race conditions on component mount
-      const timer = setTimeout(() => {
-        fetchCredits();
-      }, 1000);
-      return () => clearTimeout(timer);
-    } else if (isAuthenticated === false) {
-      setIsLoading(false);
-    }
-
     // Set up event listener for credit updates
     const handleCreditsUpdated = () => {
       if (!authError) {
@@ -130,6 +127,17 @@ const CreditsCounter = ({}: FreeCounterProps) => {
     };
 
     window.addEventListener(CREDITS_UPDATED_EVENT, handleCreditsUpdated);
+
+    // Initial fetch when component mounts
+    let timer: NodeJS.Timeout | null = null;
+    if (isAuthenticated && user && token && !authError) {
+      // Add a small delay to prevent race conditions on component mount
+      timer = setTimeout(() => {
+        fetchCredits(true); // Show loading on initial fetch only
+      }, 1000);
+    } else if (isAuthenticated === false) {
+      setIsLoading(false);
+    }
 
     // Set up periodic refresh every 5 minutes as a fallback
     // But only if we don't have an auth error
@@ -143,6 +151,9 @@ const CreditsCounter = ({}: FreeCounterProps) => {
     return () => {
       window.removeEventListener(CREDITS_UPDATED_EVENT, handleCreditsUpdated);
       clearInterval(intervalId);
+      if (timer) {
+        clearTimeout(timer);
+      }
     };
   }, [user?.id, isAuthenticated, token, authError, fetchCredits]);
 
