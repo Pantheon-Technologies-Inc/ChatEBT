@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "stream-chain": "^3.4.0"
+  }
+}

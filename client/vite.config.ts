@@ -16,6 +16,8 @@ export default defineConfig(({ command }) => ({
       '/api': {
         target: 'http://localhost:3080',
         changeOrigin: true,
+        timeout: 300000, // 5 minutes for large file uploads
+        proxyTimeout: 300000, // 5 minutes for large file uploads
       },
       '/oauth': {
         target: 'http://localhost:3080',

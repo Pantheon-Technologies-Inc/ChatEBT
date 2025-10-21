@@ -202,6 +202,14 @@ let messageCount = 0;
 process.on('uncaughtException', (err) => {
   if (!err.message.includes('fetch failed')) {
     logger.error('There was an uncaught error:', err);
+    if (err.stack) {
+      logger.error('Stack trace:', err.stack);
+    }
+  }
+
+  // Log out-of-memory errors specifically
+  if (err.message?.includes('out of memory') || err.code === 'ERR_OUT_OF_MEMORY') {
+    logger.error('OUT OF MEMORY ERROR - Consider increasing Node memory with --max-old-space-size');
   }
 
   if (err.message.includes('abort')) {
@@ -233,6 +241,13 @@ process.on('uncaughtException', (err) => {
   }
 
   process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  if (reason instanceof Error && reason.stack) {
+    logger.error('Stack trace:', reason.stack);
+  }
 });
 
 /** Export app for easier testing purposes */

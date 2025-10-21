@@ -1,0 +1,9 @@
+{
+  "watch": ["api/server", "api/models", "api/cache"],
+  "ext": "js,json",
+  "ignore": ["api/server/uploads/**", "*.test.js", "*.spec.js"],
+  "exec": "node --max-old-space-size=4096 api/server/index.js",
+  "env": {
+    "NODE_ENV": "development"
+  }
+}

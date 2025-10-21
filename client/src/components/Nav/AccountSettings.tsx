@@ -2,7 +2,7 @@ import { useState, memo } from 'react';
 import { useRecoilState } from 'recoil';
 import * as Select from '@ariakit/react/select';
 import { FileText, LogOut } from 'lucide-react';
-import { LinkIcon, GearIcon, DropdownMenuSeparator, UserIcon } from '@librechat/client';
+import { GearIcon, DropdownMenuSeparator, UserIcon } from '@librechat/client';
 import { useGetStartupConfig, useGetUserBalance } from '~/data-provider';
 import FilesView from '~/components/Chat/Input/Files/FilesView';
 import { useAuthContext } from '~/hooks/AuthContext';
@@ -91,16 +91,6 @@ function AccountSettings() {
           <FileText className="icon-md" aria-hidden="true" />
           {localize('com_nav_my_files')}
         </Select.SelectItem>
-        {startupConfig?.helpAndFaqURL !== '/' && (
-          <Select.SelectItem
-            value=""
-            onClick={() => window.open(startupConfig?.helpAndFaqURL, '_blank')}
-            className="select-item text-sm"
-          >
-            <LinkIcon aria-hidden="true" />
-            {localize('com_nav_help_faq')}
-          </Select.SelectItem>
-        )}
         <Select.SelectItem
           value=""
           onClick={() => setShowSettings(true)}

@@ -12,6 +12,7 @@ const requireJwtAuth = require('~/server/middleware/requireJwtAuth');
 const { importConversations } = require('~/server/utils/import');
 const { deleteToolCalls } = require('~/models/ToolCall');
 const getLogStores = require('~/cache/getLogStores');
+const importTracker = require('~/server/services/importTracker');
 
 const assistantClients = {
   [EModelEndpoint.azureAssistants]: require('~/server/services/Endpoints/azureAssistants'),
@@ -159,7 +160,13 @@ router.post('/update', async (req, res) => {
 
 const { importIpLimiter, importUserLimiter } = createImportLimiters();
 const { forkIpLimiter, forkUserLimiter } = createForkLimiters();
-const upload = multer({ storage: storage, fileFilter: importFileFilter });
+const upload = multer({
+  storage: storage,
+  fileFilter: importFileFilter,
+  limits: {
+    fileSize: 100 * 1024 * 1024, // 100MB limit for conversation imports
+  },
+});
 
 /**
  * Imports a conversation from a JSON file and saves it to the database.
@@ -169,20 +176,105 @@ const upload = multer({ storage: storage, fileFilter: importFileFilter });
  */
 router.post(
   '/import',
+  (req, res, next) => {
+    logger.info(`[IMPORT] Request received from user: ${req.user?.id || 'unknown'}`);
+    next();
+  },
   importIpLimiter,
   importUserLimiter,
+  (req, res, next) => {
+    logger.info(`[IMPORT] Rate limits passed, starting file upload...`);
+    next();
+  },
   upload.single('file'),
   async (req, res) => {
+    logger.info(`[IMPORT] File upload complete`);
+
     try {
-      /* TODO: optimize to return imported conversations and add manually */
-      await importConversations({ filepath: req.file.path, requestUserId: req.user.id });
-      res.status(201).json({ message: 'Conversation(s) imported successfully' });
+      if (!req.file) {
+        logger.warn(`[IMPORT] No file uploaded`);
+        return res.status(400).json({ message: 'No file uploaded' });
+      }
+
+      const fileSizeMB = (req.file.size / (1024 * 1024)).toFixed(2);
+      logger.info(
+        `[IMPORT] user: ${req.user.id} | File received: ${req.file.originalname} (${fileSizeMB}MB)`,
+      );
+
+      // Parse JSON to count conversations
+      const fs = require('fs');
+      const fileData = fs.readFileSync(req.file.path, 'utf8');
+      const jsonData = JSON.parse(fileData);
+      const totalConversations = Array.isArray(jsonData) ? jsonData.length : 1;
+
+      // Create import job
+      const jobId = importTracker.createImportJob(req.user.id, totalConversations);
+
+      // Start import in background (don't await)
+      importConversations({
+        filepath: req.file.path,
+        requestUserId: req.user.id,
+        jobId,
+      }).catch((error) => {
+        logger.error(`[IMPORT] Background import failed for job ${jobId}:`, error);
+      });
+
+      // Return immediately with job ID
+      logger.info(`[IMPORT] user: ${req.user.id} | Started background import job: ${jobId}`);
+      res.status(202).json({
+        message: 'Import started',
+        jobId,
+        totalConversations,
+      });
     } catch (error) {
-      logger.error('Error processing file', error);
-      res.status(500).send('Error processing file');
+      logger.error(`[IMPORT] user: ${req.user.id} | Error:`, error);
+
+      let errorMessage = 'Error processing file. ';
+      let statusCode = 500;
+
+      if (error.message === 'Unsupported import type') {
+        errorMessage = 'Unsupported import type. Please upload a valid ChatGPT export file.';
+        statusCode = 400;
+      } else if (error.name === 'SyntaxError') {
+        errorMessage = 'Invalid JSON file. Please make sure the file is a valid ChatGPT export.';
+        statusCode = 400;
+      } else if (error.message?.includes('out of memory') || error.code === 'ERR_OUT_OF_MEMORY') {
+        errorMessage =
+          'File is too large to process. Please try exporting a smaller date range from ChatGPT.';
+        statusCode = 413;
+      } else if (error.message?.includes('too large')) {
+        errorMessage = 'File exceeds maximum size limit (100MB).';
+        statusCode = 413;
+      } else if (error.message) {
+        errorMessage += error.message;
+      } else {
+        errorMessage += 'Please try again or contact support.';
+      }
+
+      res.status(statusCode).json({ message: errorMessage, error: error.message });
     }
   },
 );
+
+/**
+ * Get import job progress
+ * @route GET /import/progress/:jobId
+ */
+router.get('/import/progress/:jobId', (req, res) => {
+  const { jobId } = req.params;
+  const jobStatus = importTracker.getJobStatus(jobId);
+
+  if (!jobStatus) {
+    return res.status(404).json({ message: 'Job not found' });
+  }
+
+  // Only return if it's the user's job
+  if (jobStatus.userId !== req.user.id) {
+    return res.status(403).json({ message: 'Unauthorized' });
+  }
+
+  res.json(jobStatus);
+});
 
 /**
  * POST /fork

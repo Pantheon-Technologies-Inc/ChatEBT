@@ -59,7 +59,7 @@ export const ErrorMessage = ({
         role="alert"
         aria-live="assertive"
         className={cn(
-          'rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-2 text-sm text-gray-600 dark:text-gray-200',
+          'rounded-2xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-gray-600 dark:text-gray-200',
           className,
         )}
       >
@@ -96,10 +96,13 @@ const DisplayMessage = ({ text, isCreatedByUser, message, showCursor }: TDisplay
         className={cn(
           isSubmitting ? 'submitting' : '',
           showCursorState && !!text.length ? 'result-streaming' : '',
-          'markdown prose message-content dark:prose-invert light w-full break-words',
+          'message-content break-words',
           isCreatedByUser && !enableUserMsgMarkdown && 'whitespace-pre-wrap',
-          isCreatedByUser ? 'dark:text-gray-20' : 'dark:text-gray-100',
+          isCreatedByUser
+            ? 'text-white px-4 py-3 rounded-3xl inline-block max-w-fit text-left'
+            : 'markdown prose dark:prose-invert light dark:text-gray-100 w-full',
         )}
+        style={isCreatedByUser ? { backgroundColor: '#003f7a' } : undefined}
       >
         {content}
       </div>

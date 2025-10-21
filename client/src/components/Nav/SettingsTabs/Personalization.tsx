@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Switch, useToastContext } from '@librechat/client';
 import { useGetUserQuery, useUpdateMemoryPreferencesMutation } from '~/data-provider';
 import { useLocalize } from '~/hooks';
+import ImportChatGPTHistory from './Personalization/ImportChatGPTHistory';
 
 interface PersonalizationProps {
   hasMemoryOptOut: boolean;
@@ -81,6 +82,13 @@ export default function Personalization({
           </div>
         </>
       )}
+
+      {/* ChatGPT History Import Section */}
+      <div className="border-b border-border-medium pb-3 pt-3">
+        <div className="text-base font-semibold">ChatGPT History</div>
+      </div>
+
+      <ImportChatGPTHistory />
     </div>
   );
 }

@@ -179,15 +179,75 @@ async function importChatGptConvo(
   jsonData,
   requestUserId,
   builderFactory = createImportBatchBuilder,
+  progressCallback = null,
 ) {
   try {
-    const importBatchBuilder = builderFactory(requestUserId);
-    for (const conv of jsonData) {
-      processConversation(conv, importBatchBuilder, requestUserId);
+    const totalConvos = jsonData.length;
+    logger.info(
+      `user: ${requestUserId} | Starting import of ${totalConvos} ChatGPT conversations`,
+    );
+
+    // Process one conversation at a time to minimize memory usage
+    const batchSize = 1;
+    let processed = 0;
+
+    for (let i = 0; i < jsonData.length; i += batchSize) {
+      const importBatchBuilder = builderFactory(requestUserId);
+
+      // Log every 10 conversations
+      if (i % 10 === 0 || i === 0) {
+        logger.info(
+          `user: ${requestUserId} | Processing conversation ${i + 1}/${totalConvos}`,
+        );
+      }
+
+      const conv = jsonData[i];
+      try {
+        processConversation(conv, importBatchBuilder, requestUserId);
+        processed++;
+      } catch (convError) {
+        logger.error(
+          `user: ${requestUserId} | Error processing conversation "${conv.title}":`,
+          convError,
+        );
+        // Continue processing other conversations even if one fails
+        continue;
+      }
+
+      try {
+        await importBatchBuilder.saveBatch();
+
+        // Report progress to callback
+        if (progressCallback) {
+          progressCallback(processed, totalConvos);
+        }
+      } catch (saveError) {
+        logger.error(
+          `user: ${requestUserId} | Error saving conversation ${i + 1}:`,
+          saveError,
+        );
+        // Continue with next conversation instead of failing entire import
+        continue;
+      }
+
+      // Log every 50 conversations
+      if ((i + 1) % 50 === 0) {
+        logger.info(
+          `user: ${requestUserId} | Progress: ${processed}/${totalConvos} conversations imported`,
+        );
+        // Suggest garbage collection every 50 conversations
+        if (global.gc) {
+          global.gc();
+        }
+      }
     }
-    await importBatchBuilder.saveBatch();
+
+    logger.info(
+      `user: ${requestUserId} | Successfully imported ${processed}/${totalConvos} conversations`,
+    );
   } catch (error) {
     logger.error(`user: ${requestUserId} | Error creating conversation from imported file`, error);
+    throw error; // Re-throw to trigger error response
   }
 }
 
@@ -201,61 +261,149 @@ async function importChatGptConvo(
  * @returns {void}
  */
 function processConversation(conv, importBatchBuilder, requestUserId) {
-  importBatchBuilder.startConversation(EModelEndpoint.openAI);
+  try {
+    logger.debug(`user: ${requestUserId} | Processing conversation: "${conv.title}"`);
+    importBatchBuilder.startConversation(EModelEndpoint.openAI);
 
-  // Map all message IDs to new UUIDs
-  const messageMap = new Map();
-  for (const [id, mapping] of Object.entries(conv.mapping)) {
-    if (mapping.message && mapping.message.content.content_type) {
-      const newMessageId = uuidv4();
-      messageMap.set(id, newMessageId);
+    // First pass: Map all valid message IDs (including system) to new UUIDs for parent tracking
+    const messageMap = new Map();
+    logger.debug(`user: ${requestUserId} | Mapping message IDs...`);
+    for (const [id, mapping] of Object.entries(conv.mapping)) {
+      if (mapping.message && mapping.message.content && mapping.message.content.content_type) {
+        const newMessageId = uuidv4();
+        messageMap.set(id, newMessageId);
+      }
     }
-  }
+    logger.debug(`user: ${requestUserId} | Mapped ${messageMap.size} message IDs`);
 
-  // Create and save messages using the mapped IDs
-  const messages = [];
-  for (const [id, mapping] of Object.entries(conv.mapping)) {
-    const role = mapping.message?.author?.role;
-    if (!mapping.message) {
-      messageMap.delete(id);
-      continue;
-    } else if (role === 'system') {
-      messageMap.delete(id);
-      continue;
+    // Second pass: Create messages only for user/assistant, preserving parent relationships
+    const messages = [];
+    let lastValidMessageId = null; // Track the last valid message to create linear chain
+
+    logger.debug(`user: ${requestUserId} | Processing messages...`);
+    for (const [id, mapping] of Object.entries(conv.mapping)) {
+      const role = mapping.message?.author?.role;
+      const contentType = mapping.message?.content?.content_type;
+
+      // Skip entries without messages or system messages
+      if (!mapping.message) {
+        continue;
+      }
+      if (role === 'system') {
+        continue;
+      }
+
+      // Skip special content types that aren't actual conversation messages
+      if (
+        contentType === 'user_editable_context' ||
+        contentType === 'system_message' ||
+        contentType === 'model_editable_context' ||
+        contentType === 'thoughts' ||
+        contentType === 'reasoning_recap'
+      ) {
+        continue;
+      }
+
+      const newMessageId = messageMap.get(id);
+      if (!newMessageId) {
+        logger.warn(`user: ${requestUserId} | Skipping message ${id} - no mapped ID`);
+        continue;
+      }
+
+      const messageText = formatMessageText(mapping.message);
+
+      // Skip empty messages
+      if (!messageText || messageText.trim() === '') {
+        logger.debug(`user: ${requestUserId} | Skipping empty message ${id}`);
+        continue;
+      }
+
+      // Determine parent: use the last valid message to maintain linear conversation
+      let parentMessageId = Constants.NO_PARENT;
+
+      if (lastValidMessageId) {
+        // If we have a previous message, chain to it
+        parentMessageId = lastValidMessageId;
+      } else {
+        // First message - try to find parent in tree, otherwise use NO_PARENT
+        let currentParent = mapping.parent;
+
+        while (currentParent && conv.mapping[currentParent]) {
+          const parentMapping = conv.mapping[currentParent];
+          const parentRole = parentMapping.message?.author?.role;
+          const parentContentType = parentMapping.message?.content?.content_type;
+
+          // Skip system messages and special content types
+          const isSpecialContent =
+            parentContentType === 'user_editable_context' ||
+            parentContentType === 'system_message' ||
+            parentContentType === 'model_editable_context' ||
+            parentContentType === 'thoughts' ||
+            parentContentType === 'reasoning_recap';
+
+          // If parent is user or assistant with normal content, use it
+          if (
+            parentRole &&
+            parentRole !== 'system' &&
+            !isSpecialContent &&
+            messageMap.has(currentParent)
+          ) {
+            parentMessageId = messageMap.get(currentParent);
+            break;
+          }
+
+          // Otherwise, continue up the tree
+          currentParent = parentMapping.parent;
+        }
+      }
+
+      const isCreatedByUser = role === 'user';
+      const model =
+        mapping.message.metadata?.model_slug || openAISettings.model.default;
+
+      // Determine sender based on model
+      let sender = 'ChatGPT';
+      if (isCreatedByUser) {
+        sender = 'user';
+      } else if (model) {
+        if (model.includes('gpt-4')) {
+          sender = 'GPT-4';
+        } else if (model.includes('gpt-3.5')) {
+          sender = 'GPT-3.5';
+        } else if (model.includes('o1')) {
+          sender = 'o1';
+        } else {
+          sender = model; // Use the actual model name
+        }
+      }
+
+      messages.push({
+        messageId: newMessageId,
+        parentMessageId,
+        text: messageText,
+        sender,
+        isCreatedByUser,
+        model,
+        user: requestUserId,
+        endpoint: EModelEndpoint.openAI,
+      });
+
+      // Update last valid message for linear chaining
+      lastValidMessageId = newMessageId;
     }
 
-    const newMessageId = messageMap.get(id);
-    const parentMessageId =
-      mapping.parent && messageMap.has(mapping.parent)
-        ? messageMap.get(mapping.parent)
-        : Constants.NO_PARENT;
-
-    const messageText = formatMessageText(mapping.message);
-
-    const isCreatedByUser = role === 'user';
-    let sender = isCreatedByUser ? 'user' : 'GPT-3.5';
-    const model = mapping.message.metadata.model_slug || openAISettings.model.default;
-    if (model.includes('gpt-4')) {
-      sender = 'GPT-4';
+    logger.debug(`user: ${requestUserId} | Saving ${messages.length} messages...`);
+    for (const message of messages) {
+      importBatchBuilder.saveMessage(message);
     }
 
-    messages.push({
-      messageId: newMessageId,
-      parentMessageId,
-      text: messageText,
-      sender,
-      isCreatedByUser,
-      model,
-      user: requestUserId,
-      endpoint: EModelEndpoint.openAI,
-    });
+    logger.debug(`user: ${requestUserId} | Finishing conversation...`);
+    importBatchBuilder.finishConversation(conv.title, new Date(conv.create_time * 1000));
+    logger.debug(`user: ${requestUserId} | Conversation processed successfully`);
+  } catch (error) {
+    logger.error(`user: ${requestUserId} | Error in processConversation:`, error);
+    throw error;
   }
-
-  for (const message of messages) {
-    importBatchBuilder.saveMessage(message);
-  }
-
-  importBatchBuilder.finishConversation(conv.title, new Date(conv.create_time * 1000));
 }
 
 /**

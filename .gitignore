@@ -134,3 +134,6 @@ helm/**/.values.yaml
 /.openai/
 /.tabnine/
 /.codeium
+
+conversation.json
+conversations-backup.json
