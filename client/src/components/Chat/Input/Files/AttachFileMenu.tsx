@@ -1,12 +1,10 @@
 import React, { useRef, useState, useMemo } from 'react';
 import * as Ariakit from '@ariakit/react';
-import { useSetRecoilState } from 'recoil';
-import { FileSearch, ImageUpIcon, TerminalSquareIcon, FileType2Icon, Plus } from 'lucide-react';
+import { FileSearch, ImageUpIcon, FileType2Icon, Plus } from 'lucide-react';
 import { FileUpload, TooltipAnchor, DropdownPopup } from '@librechat/client';
 import { EToolResources, EModelEndpoint, defaultAgentCapabilities } from 'librechat-data-provider';
 import type { EndpointFileConfig } from 'librechat-data-provider';
 import { useLocalize, useGetAgentsConfig, useFileHandling, useAgentCapabilities } from '~/hooks';
-import { ephemeralAgentByConvoId } from '~/store';
 import { cn } from '~/utils';
 
 interface AttachFileMenuProps {
@@ -20,7 +18,6 @@ const AttachFileMenu = ({ disabled, conversationId, endpointFileConfig }: Attach
   const isUploadDisabled = disabled ?? false;
   const inputRef = useRef<HTMLInputElement>(null);
   const [isPopoverActive, setIsPopoverActive] = useState(false);
-  const setEphemeralAgent = useSetRecoilState(ephemeralAgentByConvoId(conversationId));
   const [toolResource, setToolResource] = useState<EToolResources | undefined>();
   const { handleFileChange } = useFileHandling({
     overrideEndpoint: EModelEndpoint.agents,
@@ -79,23 +76,8 @@ const AttachFileMenu = ({ disabled, conversationId, endpointFileConfig }: Attach
       });
     }
 
-    if (capabilities.codeEnabled) {
-      items.push({
-        label: localize('com_ui_upload_code_files'),
-        onClick: () => {
-          setToolResource(EToolResources.execute_code);
-          setEphemeralAgent((prev) => ({
-            ...prev,
-            [EToolResources.execute_code]: true,
-          }));
-          handleUploadClick();
-        },
-        icon: <TerminalSquareIcon className="icon-md" />,
-      });
-    }
-
     return items;
-  }, [capabilities, localize, setToolResource, setEphemeralAgent]);
+  }, [capabilities, localize, setToolResource]);
 
   const menuTrigger = (
     <TooltipAnchor

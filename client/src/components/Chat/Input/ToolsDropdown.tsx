@@ -1,17 +1,15 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import * as Ariakit from '@ariakit/react';
-import { Globe, Settings, Settings2 } from 'lucide-react';
+import { Settings2, WandSparkles } from 'lucide-react';
 import { TooltipAnchor, DropdownPopup, PinIcon, VectorIcon } from '@librechat/client';
 import type { MenuItemProps } from '~/common';
 import {
-  AuthType,
   Permissions,
   ArtifactModes,
   PermissionTypes,
   defaultAgentCapabilities,
 } from 'librechat-data-provider';
 import { useLocalize, useHasAccess, useAgentCapabilities } from '~/hooks';
-import ArtifactsSubMenu from '~/components/Chat/Input/ArtifactsSubMenu';
 import MCPSubMenu from '~/components/Chat/Input/MCPSubMenu';
 import { useBadgeRowContext } from '~/Providers';
 import { cn } from '~/utils';
@@ -24,50 +22,19 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
   const localize = useLocalize();
   const isDisabled = disabled ?? false;
   const [isPopoverActive, setIsPopoverActive] = useState(false);
-  const {
-    webSearch,
-    mcpSelect,
-    artifacts,
-    fileSearch,
-    agentsConfig,
-    startupConfig,
-    searchApiKeyForm,
-  } = useBadgeRowContext();
-  const { webSearchEnabled, artifactsEnabled, fileSearchEnabled } = useAgentCapabilities(
+  const { mcpSelect, artifacts, fileSearch, agentsConfig, startupConfig } = useBadgeRowContext();
+  const { artifactsEnabled, fileSearchEnabled } = useAgentCapabilities(
     agentsConfig?.capabilities ?? defaultAgentCapabilities,
   );
 
-  const { setIsDialogOpen: setIsSearchDialogOpen, menuTriggerRef: searchMenuTriggerRef } =
-    searchApiKeyForm;
-  const {
-    isPinned: isSearchPinned,
-    setIsPinned: setIsSearchPinned,
-    authData: webSearchAuthData,
-  } = webSearch;
   const { isPinned: isFileSearchPinned, setIsPinned: setIsFileSearchPinned } = fileSearch;
   const { isPinned: isArtifactsPinned, setIsPinned: setIsArtifactsPinned } = artifacts;
   const { mcpServerNames } = mcpSelect;
-
-  const canUseWebSearch = useHasAccess({
-    permissionType: PermissionTypes.WEB_SEARCH,
-    permission: Permissions.USE,
-  });
 
   const canUseFileSearch = useHasAccess({
     permissionType: PermissionTypes.FILE_SEARCH,
     permission: Permissions.USE,
   });
-
-  const showWebSearchSettings = useMemo(() => {
-    const authTypes = webSearchAuthData?.authTypes ?? [];
-    if (authTypes.length === 0) return true;
-    return !authTypes.every(([, authType]) => authType === AuthType.SYSTEM_DEFINED);
-  }, [webSearchAuthData?.authTypes]);
-
-  const handleWebSearchToggle = useCallback(() => {
-    const newValue = !webSearch.toggleState;
-    webSearch.debouncedChange({ value: newValue });
-  }, [webSearch]);
 
   const handleFileSearchToggle = useCallback(() => {
     const newValue = !fileSearch.toggleState;
@@ -80,24 +47,6 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
       artifacts.debouncedChange({ value: ArtifactModes.DEFAULT });
     } else {
       artifacts.debouncedChange({ value: '' });
-    }
-  }, [artifacts]);
-
-  const handleShadcnToggle = useCallback(() => {
-    const currentState = artifacts.toggleState;
-    if (currentState === ArtifactModes.SHADCNUI) {
-      artifacts.debouncedChange({ value: ArtifactModes.DEFAULT });
-    } else {
-      artifacts.debouncedChange({ value: ArtifactModes.SHADCNUI });
-    }
-  }, [artifacts]);
-
-  const handleCustomToggle = useCallback(() => {
-    const currentState = artifacts.toggleState;
-    if (currentState === ArtifactModes.CUSTOM) {
-      artifacts.debouncedChange({ value: ArtifactModes.DEFAULT });
-    } else {
-      artifacts.debouncedChange({ value: ArtifactModes.CUSTOM });
     }
   }, [artifacts]);
 
@@ -137,73 +86,34 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
     });
   }
 
-  if (canUseWebSearch && webSearchEnabled) {
+  if (artifactsEnabled) {
     dropdownItems.push({
-      onClick: handleWebSearchToggle,
+      onClick: handleArtifactsToggle,
       hideOnClick: false,
       render: (props) => (
         <div {...props}>
           <div className="flex items-center gap-2">
-            <Globe className="icon-md" />
-            <span>{localize('com_ui_web_search')}</span>
+            <WandSparkles className="icon-md" />
+            <span>{localize('com_ui_artifacts')}</span>
           </div>
-          <div className="flex items-center gap-1">
-            {showWebSearchSettings && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsSearchDialogOpen(true);
-                }}
-                className={cn(
-                  'rounded p-1 transition-all duration-200',
-                  'hover:bg-surface-secondary hover:shadow-sm',
-                  'text-text-secondary hover:text-text-primary',
-                )}
-                aria-label="Configure web search"
-                ref={searchMenuTriggerRef}
-              >
-                <div className="h-4 w-4">
-                  <Settings className="h-4 w-4" />
-                </div>
-              </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsArtifactsPinned(!isArtifactsPinned);
+            }}
+            className={cn(
+              'rounded p-1 transition-all duration-200',
+              'hover:bg-surface-secondary hover:shadow-sm',
+              !isArtifactsPinned && 'text-text-secondary hover:text-text-primary',
             )}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsSearchPinned(!isSearchPinned);
-              }}
-              className={cn(
-                'rounded p-1 transition-all duration-200',
-                'hover:bg-surface-secondary hover:shadow-sm',
-                !isSearchPinned && 'text-text-secondary hover:text-text-primary',
-              )}
-              aria-label={isSearchPinned ? 'Unpin' : 'Pin'}
-            >
-              <div className="h-4 w-4">
-                <PinIcon unpin={isSearchPinned} />
-              </div>
-            </button>
-          </div>
+            aria-label={isArtifactsPinned ? 'Unpin' : 'Pin'}
+          >
+            <div className="h-4 w-4">
+              <PinIcon unpin={isArtifactsPinned} />
+            </div>
+          </button>
         </div>
-      ),
-    });
-  }
-
-  if (artifactsEnabled) {
-    dropdownItems.push({
-      hideOnClick: false,
-      render: (props) => (
-        <ArtifactsSubMenu
-          {...props}
-          isArtifactsPinned={isArtifactsPinned}
-          setIsArtifactsPinned={setIsArtifactsPinned}
-          artifactsMode={artifacts.toggleState as string}
-          handleArtifactsToggle={handleArtifactsToggle}
-          handleShadcnToggle={handleShadcnToggle}
-          handleCustomToggle={handleCustomToggle}
-        />
       ),
     });
   }

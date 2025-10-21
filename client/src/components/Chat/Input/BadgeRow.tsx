@@ -19,7 +19,6 @@ import ToolDialogs from './ToolDialogs';
 import FileSearch from './FileSearch';
 import Artifacts from './Artifacts';
 import MCPSelect from './MCPSelect';
-import WebSearch from './WebSearch';
 import store from '~/store';
 
 interface BadgeRowProps {
@@ -363,7 +362,6 @@ function BadgeRow({
         )}
         {showEphemeralBadges === true && (
           <>
-            <WebSearch />
             <FileSearch />
             <Artifacts />
             <MCPSelect />

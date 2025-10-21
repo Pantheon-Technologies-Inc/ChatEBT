@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { OGDialog, OGDialogTemplate } from '@librechat/client';
-import { ImageUpIcon, FileSearch, TerminalSquareIcon, FileType2Icon } from 'lucide-react';
+import { ImageUpIcon, FileSearch, FileType2Icon } from 'lucide-react';
 import { EToolResources, defaultAgentCapabilities } from 'librechat-data-provider';
 import { useLocalize, useGetAgentsConfig, useAgentCapabilities } from '~/hooks';
 
@@ -40,13 +40,6 @@ const DragDropModal = ({ onOptionSelect, setShowModal, files, isVisible }: DragD
         label: localize('com_ui_upload_file_search'),
         value: EToolResources.file_search,
         icon: <FileSearch className="icon-md" />,
-      });
-    }
-    if (capabilities.codeEnabled) {
-      _options.push({
-        label: localize('com_ui_upload_code_files'),
-        value: EToolResources.execute_code,
-        icon: <TerminalSquareIcon className="icon-md" />,
       });
     }
     if (capabilities.ocrEnabled) {
