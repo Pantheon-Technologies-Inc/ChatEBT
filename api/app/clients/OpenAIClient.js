@@ -531,6 +531,30 @@ class OpenAIClient extends BaseClient {
     this.modelOptions.user = this.user;
     const invalidBaseUrl = this.completionsUrl && extractBaseURL(this.completionsUrl) === null;
     const useOldMethod = !!(invalidBaseUrl || !this.isChatCompletion);
+
+    // Check if we should use Responses API (enabled by default for OpenAI chat completions)
+    const useResponsesAPI = process.env.USE_RESPONSES_API !== 'false' && this.isChatCompletion && !this.useOpenRouter && !this.isOllama;
+
+    if (useResponsesAPI) {
+      // Convert messages to Responses API input format
+      const { input, instructions } = await this.convertMessagesToResponsesInput(payload);
+
+      // Add instructions to model options if present
+      if (instructions) {
+        this.modelOptions.instructions = instructions;
+      }
+
+      reply = await this.responseCompletion({
+        input,
+        onProgress: opts.onProgress,
+        abortController: opts.abortController,
+        conversationId: this.conversationId,
+      });
+
+      return (reply ?? '').trim();
+    }
+
+    // Fallback to old chat completions API for non-OpenAI endpoints
     if (typeof opts.onProgress === 'function' && useOldMethod) {
       const completionResult = await this.getCompletion(
         payload,
@@ -1107,6 +1131,463 @@ ${convo}
 
       return msg;
     };
+  }
+
+  /**
+   * Converts a file to base64-encoded data URI for inline submission in Responses API
+   * @param {MongoFile} file - The file object
+   * @returns {Promise<{type: string, filename: string, file_data: string}>}
+   */
+  async convertFileToBase64ContentPart(file) {
+    const fs = require('fs').promises;
+    const path = require('path');
+
+    // If file has a filepath, read it and convert to base64
+    if (file.filepath) {
+      try {
+        const fileBuffer = await fs.readFile(file.filepath);
+        const base64Data = fileBuffer.toString('base64');
+        const mimeType = file.type || 'application/octet-stream';
+
+        return {
+          type: 'input_file',
+          filename: file.filename || path.basename(file.filepath),
+          file_data: `data:${mimeType};base64,${base64Data}`
+        };
+      } catch (error) {
+        logger.error('[OpenAIClient] Error reading file for base64 conversion:', error);
+        throw error;
+      }
+    }
+
+    // If file is already embedded (base64 in image_urls), use that
+    if (file.embedded && file.filepath) {
+      const mimeType = file.type || 'application/octet-stream';
+      return {
+        type: 'input_file',
+        filename: file.filename,
+        file_data: `data:${mimeType};base64,${file.filepath.split(',')[1]}`
+      };
+    }
+
+    throw new Error('File must have either a filepath or embedded data');
+  }
+
+  /**
+   * Converts traditional messages format to Responses API input format
+   * @param {Array} messages - Array of message objects
+   * @param {MongoFile[]} files - Array of file attachments
+   * @returns {Promise<{input: Array, instructions?: string}>}
+   */
+  async convertMessagesToResponsesInput(messages, files = []) {
+    const input = [];
+    let instructions = null;
+
+    for (const message of messages) {
+      // Extract system message as instructions
+      if (message.role === 'system') {
+        instructions = typeof message.content === 'string' ? message.content : message.content?.text;
+        continue;
+      }
+
+      // Handle user messages - these can have files
+      if (message.role === 'user') {
+        const contentParts = [];
+
+        // Add text content
+        const text = typeof message.content === 'string' ? message.content : message.content?.text;
+        if (text) {
+          contentParts.push({
+            type: 'input_text',
+            text: text
+          });
+        }
+
+        // Add files if this is the latest message and has files
+        if (message.image_urls && message.image_urls.length > 0) {
+          // Handle image URLs (vision models)
+          for (const imageUrl of message.image_urls) {
+            if (imageUrl.image_url?.url) {
+              const url = imageUrl.image_url.url;
+              // If it's a base64 data URI, extract it
+              if (url.startsWith('data:')) {
+                const filename = `image_${contentParts.length}.${url.split(';')[0].split('/')[1]}`;
+                contentParts.push({
+                  type: 'input_file',
+                  filename,
+                  file_data: url
+                });
+              } else {
+                // If it's a URL, we might need to fetch and convert it
+                // For now, keep it as is (Responses API might support URLs)
+                contentParts.push({
+                  type: 'input_file',
+                  filename: url.split('/').pop() || 'image',
+                  file_data: url
+                });
+              }
+            }
+          }
+        }
+
+        input.push({
+          role: 'user',
+          content: contentParts.length === 1 && contentParts[0].type === 'input_text'
+            ? contentParts[0].text  // If only text, simplify to string
+            : contentParts
+        });
+      }
+      // Handle assistant messages - these are always simple text
+      else if (message.role === 'assistant') {
+        input.push({
+          role: 'assistant',
+          content: typeof message.content === 'string' ? message.content : message.content?.text || ''
+        });
+      }
+    }
+
+    const result = { input };
+    if (instructions) {
+      result.instructions = instructions;
+    }
+
+    return result;
+  }
+
+  /**
+   * Uses the new Responses API instead of Chat Completions.
+   * Supports unified file handling and server-side state management.
+   * @param {Object} params
+   * @param {Array} params.input - Input array with user messages and files
+   * @param {Function} params.onProgress - Progress callback
+   * @param {AbortController} params.abortController - Abort controller
+   * @param {string} params.conversationId - Optional conversation ID for stateful conversations
+   * @returns {Promise<string>} The response text
+   */
+  async responseCompletion({ input, onProgress, abortController = null, conversationId = null }) {
+    let error = null;
+    let intermediateReply = [];
+    const errorCallback = (err) => (error = err);
+    try {
+      if (!abortController) {
+        abortController = new AbortController();
+      }
+
+      let modelOptions = { ...this.modelOptions };
+
+      if (typeof onProgress === 'function') {
+        modelOptions.stream = true;
+      }
+
+      // Responses API uses 'input' instead of 'messages'
+      modelOptions.input = input;
+
+      // Add conversation_id for stateful conversations
+      if (conversationId) {
+        modelOptions.conversation_id = conversationId;
+      }
+
+      const baseURL = extractBaseURL(this.completionsUrl.replace('/chat/completions', '/responses'));
+      logger.debug('[OpenAIClient] responseCompletion', { baseURL, modelOptions });
+
+      const opts = {
+        baseURL,
+        fetchOptions: {},
+      };
+
+      if (this.useOpenRouter) {
+        opts.defaultHeaders = {
+          'HTTP-Referer': 'https://librechat.ai',
+          'X-Title': 'LibreChat',
+        };
+      }
+
+      if (this.options.headers) {
+        opts.defaultHeaders = { ...opts.defaultHeaders, ...this.options.headers };
+      }
+
+      if (this.options.defaultQuery) {
+        opts.defaultQuery = this.options.defaultQuery;
+      }
+
+      if (this.options.proxy) {
+        opts.fetchOptions.agent = new HttpsProxyAgent(this.options.proxy);
+      }
+
+      if (this.azure || this.options.azure) {
+        /* Azure Bug, extremely short default `max_tokens` response */
+        if (!modelOptions.max_tokens && modelOptions.model === 'gpt-4-vision-preview') {
+          modelOptions.max_tokens = 4000;
+        }
+
+        /* Azure does not accept `model` in the body, so we need to remove it. */
+        delete modelOptions.model;
+
+        opts.baseURL = this.langchainProxy
+          ? constructAzureURL({
+              baseURL: this.langchainProxy,
+              azureOptions: this.azure,
+            })
+          : this.azureEndpoint.split(/(?<!\/)\/(chat|completion)\//)[0];
+
+        opts.defaultQuery = { 'api-version': this.azure.azureOpenAIApiVersion };
+        opts.defaultHeaders = { ...opts.defaultHeaders, 'api-key': this.apiKey };
+      }
+
+      if (this.isOmni === true && modelOptions.max_tokens != null) {
+        modelOptions.max_completion_tokens = modelOptions.max_tokens;
+        delete modelOptions.max_tokens;
+      }
+      if (this.isOmni === true && modelOptions.temperature != null) {
+        delete modelOptions.temperature;
+      }
+
+      if (process.env.OPENAI_ORGANIZATION) {
+        opts.organization = process.env.OPENAI_ORGANIZATION;
+      }
+
+      if (this.options.addParams && typeof this.options.addParams === 'object') {
+        const addParams = { ...this.options.addParams };
+        modelOptions = {
+          ...modelOptions,
+          ...addParams,
+        };
+        logger.debug('[OpenAIClient] responseCompletion: added params', {
+          addParams: addParams,
+          modelOptions,
+        });
+      }
+
+      if (this.options.dropParams && Array.isArray(this.options.dropParams)) {
+        const dropParams = [...this.options.dropParams];
+        dropParams.forEach((param) => {
+          delete modelOptions[param];
+        });
+        logger.debug('[OpenAIClient] responseCompletion: dropped params', {
+          dropParams: dropParams,
+          modelOptions,
+        });
+      }
+
+      let responseCompletion;
+      /** @type {OpenAI} */
+      const openai = new OpenAI({
+        fetch: createFetch({
+          directEndpoint: this.options.directEndpoint,
+          reverseProxyUrl: this.options.reverseProxyUrl,
+        }),
+        apiKey: this.apiKey,
+        ...opts,
+      });
+
+      const streamRate = this.options.streamRate ?? Constants.DEFAULT_STREAM_RATE;
+
+      let UnexpectedRoleError = false;
+      /** @type {Promise<void>} */
+      let streamPromise;
+      /** @type {(value: void | PromiseLike<void>) => void} */
+      let streamResolve;
+
+      const handlers = createStreamEventHandlers(this.options.res);
+      this.streamHandler = new SplitStreamHandler({
+        reasoningKey: this.useOpenRouter ? 'reasoning' : 'reasoning_content',
+        accumulate: true,
+        runId: this.responseMessageId,
+        handlers,
+      });
+
+      intermediateReply = this.streamHandler.tokens;
+
+      if (modelOptions.stream) {
+        streamPromise = new Promise((resolve) => {
+          streamResolve = resolve;
+        });
+
+        // Responses API uses responses.create instead of chat.completions.create
+        const stream = await openai.responses
+          .create({
+            ...modelOptions,
+            stream: true,
+          })
+          .on('abort', () => {
+            /* Do nothing here */
+          })
+          .on('error', (err) => {
+            handleOpenAIErrors(err, errorCallback, 'stream');
+          })
+          .on('finalResponse', async (finalResponse) => {
+            const finalMessage = finalResponse?.choices?.[0]?.message;
+            if (!finalMessage) {
+              return;
+            }
+            await streamPromise;
+            if (finalMessage?.role !== 'assistant') {
+              finalResponse.choices[0].message.role = 'assistant';
+            }
+
+            if (typeof finalMessage.content !== 'string' || finalMessage.content.trim() === '') {
+              finalResponse.choices[0].message.content = this.streamHandler.tokens.join('');
+            }
+          })
+          .on('finalMessage', (message) => {
+            if (message?.role !== 'assistant') {
+              stream.messages.push({
+                role: 'assistant',
+                content: this.streamHandler.tokens.join(''),
+              });
+              UnexpectedRoleError = true;
+            }
+          });
+
+        if (this.continued === true) {
+          const latestText = addSpaceIfNeeded(
+            this.currentMessages[this.currentMessages.length - 1]?.text ?? '',
+          );
+          this.streamHandler.handle({
+            choices: [
+              {
+                delta: {
+                  content: latestText,
+                },
+              },
+            ],
+          });
+        }
+
+        for await (const chunk of stream) {
+          // Add finish_reason: null if missing in any choice
+          if (chunk.choices) {
+            chunk.choices.forEach((choice) => {
+              if (!('finish_reason' in choice)) {
+                choice.finish_reason = null;
+              }
+            });
+          }
+          this.streamHandler.handle(chunk);
+          if (abortController.signal.aborted) {
+            stream.controller.abort();
+            break;
+          }
+
+          await sleep(streamRate);
+        }
+
+        streamResolve();
+
+        if (!UnexpectedRoleError) {
+          responseCompletion = await stream.finalResponse().catch((err) => {
+            handleOpenAIErrors(err, errorCallback, 'finalResponse');
+          });
+        }
+      }
+      // regular completion
+      else {
+        responseCompletion = await openai.responses
+          .create({
+            ...modelOptions,
+          })
+          .catch((err) => {
+            handleOpenAIErrors(err, errorCallback, 'create');
+          });
+      }
+
+      if (openai.abortHandler && abortController.signal) {
+        abortController.signal.removeEventListener('abort', openai.abortHandler);
+        openai.abortHandler = undefined;
+      }
+
+      if (!responseCompletion && UnexpectedRoleError) {
+        throw new Error(
+          'OpenAI error: Invalid final message: OpenAI expects final message to include role=assistant',
+        );
+      } else if (!responseCompletion && error) {
+        throw new Error(error);
+      } else if (!responseCompletion) {
+        throw new Error('Response completion failed');
+      }
+
+      const { choices } = responseCompletion;
+      this.usage = responseCompletion.usage;
+
+      if (!Array.isArray(choices) || choices.length === 0) {
+        logger.warn('[OpenAIClient] Response completion has no choices');
+        return this.streamHandler.tokens.join('');
+      }
+
+      const { message, finish_reason } = choices[0] ?? {};
+      this.metadata = { finish_reason };
+
+      logger.debug('[OpenAIClient] responseCompletion response', responseCompletion);
+
+      if (!message) {
+        logger.warn('[OpenAIClient] Message is undefined in responseCompletion');
+        return this.streamHandler.tokens.join('');
+      }
+
+      if (typeof message.content !== 'string' || message.content.trim() === '') {
+        const reply = this.streamHandler.tokens.join('');
+        logger.debug(
+          '[OpenAIClient] responseCompletion: using intermediateReply due to empty message.content',
+          { intermediateReply: reply },
+        );
+        return reply;
+      }
+
+      if (
+        this.streamHandler.reasoningTokens.length > 0 &&
+        this.options.context !== 'title' &&
+        !message.content.startsWith('<think>')
+      ) {
+        return this.getStreamText();
+      } else if (
+        this.streamHandler.reasoningTokens.length > 0 &&
+        this.options.context !== 'title' &&
+        message.content.startsWith('<think>')
+      ) {
+        return this.getStreamText();
+      }
+
+      return message.content;
+    } catch (err) {
+      if (
+        err?.message?.includes('abort') ||
+        (err instanceof OpenAI.APIError && err?.message?.includes('abort'))
+      ) {
+        return this.getStreamText(intermediateReply);
+      }
+      if (
+        err?.message?.includes(
+          'OpenAI error: Invalid final message: OpenAI expects final message to include role=assistant',
+        ) ||
+        err?.message?.includes(
+          'stream ended without producing a message with role=assistant',
+        ) ||
+        err?.message?.includes('The server had an error processing your request') ||
+        err?.message?.includes('missing finish_reason') ||
+        err?.message?.includes('missing role') ||
+        (err instanceof OpenAI.OpenAIError && err?.message?.includes('missing finish_reason'))
+      ) {
+        logger.error('[OpenAIClient] Known OpenAI error:', err);
+        if (this.streamHandler && this.streamHandler.reasoningTokens.length) {
+          return this.getStreamText();
+        } else if (intermediateReply.length > 0) {
+          return this.getStreamText(intermediateReply);
+        } else {
+          throw err;
+        }
+      } else if (err instanceof OpenAI.APIError) {
+        if (this.streamHandler && this.streamHandler.reasoningTokens.length) {
+          return this.getStreamText();
+        } else if (intermediateReply.length > 0) {
+          return this.getStreamText(intermediateReply);
+        } else {
+          throw err;
+        }
+      } else {
+        logger.error('[OpenAIClient.responseCompletion] Unhandled error type', err);
+        throw err;
+      }
+    }
   }
 
   async chatCompletion({ payload, onProgress, abortController = null }) {

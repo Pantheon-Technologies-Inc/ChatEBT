@@ -71,6 +71,11 @@ function checkVariables() {
  * Logs information or warning based on the API's availability and response.
  */
 async function checkHealth() {
+  if (!process.env.RAG_API_URL) {
+    logger.info('RAG API URL not configured - RAG/vector embedding features will be disabled. Files can still be uploaded using native provider support.');
+    return;
+  }
+
   try {
     const response = await fetch(`${process.env.RAG_API_URL}/health`);
     if (response?.ok && response?.status === 200) {
@@ -78,7 +83,7 @@ async function checkHealth() {
     }
   } catch (error) {
     logger.warn(
-      `RAG API is either not running or not reachable at ${process.env.RAG_API_URL}, you may experience errors with file uploads.`,
+      `RAG API is configured but not reachable at ${process.env.RAG_API_URL}. RAG/vector embedding features will be disabled.`,
     );
   }
 }

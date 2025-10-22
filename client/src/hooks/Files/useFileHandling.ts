@@ -180,10 +180,7 @@ const useFileHandling = (params?: UseFileHandling) => {
       if (!agent_id) {
         formData.append('message_file', 'true');
       }
-      const tool_resource = extendedFile.tool_resource;
-      if (tool_resource != null) {
-        formData.append('tool_resource', tool_resource);
-      }
+      // Responses API auto-detects file types, no need for tool_resource
       if (conversation?.agent_id != null && formData.get('agent_id') == null) {
         formData.append('agent_id', conversation.agent_id);
       }
@@ -240,7 +237,7 @@ const useFileHandling = (params?: UseFileHandling) => {
     img.src = preview;
   };
 
-  const handleFiles = async (_files: FileList | File[], _toolResource?: string) => {
+  const handleFiles = async (_files: FileList | File[]) => {
     abortControllerRef.current = new AbortController();
     const fileList = Array.from(_files);
     /* Validate files */
@@ -284,9 +281,7 @@ const useFileHandling = (params?: UseFileHandling) => {
           size: originalFile.size,
         };
 
-        if (_toolResource != null && _toolResource !== '') {
-          initialExtendedFile.tool_resource = _toolResource;
-        }
+        // No need for tool_resource with Responses API - it auto-detects file types
 
         // Add file immediately to show in UI
         addFile(initialExtendedFile);
@@ -372,13 +367,9 @@ const useFileHandling = (params?: UseFileHandling) => {
         } else {
           // File wasn't processed, proceed with original
           const isImage = originalFile.type.split('/')[0] === 'image';
-          const tool_resource =
-            initialExtendedFile.tool_resource ?? params?.additionalMetadata?.tool_resource;
-          if (isAgentsEndpoint(endpoint) && !isImage && tool_resource == null) {
-            /** Note: this needs to be removed when we can support files to providers */
-            setError('com_error_files_unsupported_capability');
-            continue;
-          }
+
+          // With Responses API, all file types are supported uniformly
+          // No need to check for tool_resource or specific capabilities
 
           // Update progress to show ready for upload
           const readyExtendedFile = {
@@ -406,11 +397,11 @@ const useFileHandling = (params?: UseFileHandling) => {
     }
   };
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>, _toolResource?: string) => {
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     event.stopPropagation();
     if (event.target.files) {
       setFilesLoading(true);
-      handleFiles(event.target.files, _toolResource);
+      handleFiles(event.target.files);
       // reset the input
       event.target.value = '';
     }

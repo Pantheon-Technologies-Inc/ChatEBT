@@ -4,12 +4,28 @@ import { FileUpload, TooltipAnchor } from '@librechat/client';
 import { useLocalize, useFileHandling } from '~/hooks';
 import { cn } from '~/utils';
 
-const AttachFile = ({ disabled }: { disabled?: boolean | null }) => {
+/**
+ * Unified file attachment component for the Responses API.
+ * Handles all file types (images, documents, PDFs, etc.) through a single upload button.
+ * The Responses API automatically detects and handles different file types appropriately.
+ */
+const AttachFile = ({
+  disabled,
+  overrideEndpoint,
+  additionalMetadata
+}: {
+  disabled?: boolean | null;
+  overrideEndpoint?: string;
+  additionalMetadata?: Record<string, string | undefined>;
+}) => {
   const localize = useLocalize();
   const inputRef = useRef<HTMLInputElement>(null);
   const isUploadDisabled = disabled ?? false;
 
-  const { handleFileChange } = useFileHandling();
+  const { handleFileChange } = useFileHandling({
+    overrideEndpoint: overrideEndpoint as any,
+    additionalMetadata,
+  });
 
   return (
     <FileUpload ref={inputRef} handleFileChange={handleFileChange}>
