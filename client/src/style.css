@@ -2510,6 +2510,65 @@ html {
   font-size: var(--markdown-font-size, var(--font-size-base));
 }
 
+/* Fix for code blocks in user messages */
+.message-content.whitespace-pre-wrap pre,
+.message-content.whitespace-pre-wrap code {
+  overflow-x: auto;
+  max-width: 100%;
+  display: block;
+  white-space: pre;
+  word-wrap: normal;
+}
+
+.message-content.whitespace-pre-wrap {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* Constrain all elements inside user messages to prevent overflow */
+.inline-block.max-w-\[85\%\] {
+  box-sizing: border-box;
+  max-width: 85vw !important;
+  overflow: hidden;
+  display: block !important;
+  width: fit-content;
+}
+
+.inline-block.max-w-\[85\%\] > * {
+  max-width: 100% !important;
+  box-sizing: border-box;
+}
+
+/* Force override w-full class inside user messages */
+.inline-block.max-w-\[85\%\] .w-full {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box;
+}
+
+/* Ensure code block containers don't exceed parent width */
+.inline-block.max-w-\[85\%\] pre,
+.inline-block.max-w-\[85\%\] .overflow-y-auto {
+  max-width: 100% !important;
+  overflow-x: auto;
+  box-sizing: border-box;
+}
+
+.inline-block.max-w-\[85\%\] .rounded-md {
+  max-width: 100% !important;
+  box-sizing: border-box;
+}
+
+/* Fix for markdown content inside inline-block containers */
+.inline-block.max-w-\[85\%\] p,
+.inline-block.max-w-\[85\%\] blockquote,
+.inline-block.max-w-\[85\%\] ul,
+.inline-block.max-w-\[85\%\] ol {
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
 .code-analyze-block pre code,
 .code-analyze-block .overflow-y-auto code {
   font-size: calc(0.85 * var(--markdown-font-size, var(--font-size-base)));

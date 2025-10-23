@@ -35,6 +35,8 @@ const addTitle = async (req, { text, response, client }) => {
         client
           .titleConvo({
             text,
+            responseText: response?.text ?? '',
+            conversationId: response.conversationId,
             abortController,
           })
           .catch((error) => {
@@ -52,6 +54,11 @@ const addTitle = async (req, { text, response, client }) => {
     }
     if (timeoutId) {
       clearTimeout(timeoutId);
+    }
+
+    if (!title) {
+      logger.debug('[addTitle] Title generation returned empty result, skipping save');
+      return;
     }
 
     await titleCache.set(key, title, 120000);

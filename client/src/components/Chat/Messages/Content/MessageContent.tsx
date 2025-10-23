@@ -99,7 +99,7 @@ const DisplayMessage = ({ text, isCreatedByUser, message, showCursor }: TDisplay
           'message-content break-words',
           isCreatedByUser && !enableUserMsgMarkdown && 'whitespace-pre-wrap',
           isCreatedByUser
-            ? 'text-white px-4 py-3 rounded-3xl inline-block max-w-fit text-left'
+            ? 'text-white px-4 py-3 rounded-3xl inline-block max-w-[85%] text-left overflow-wrap-anywhere min-w-0'
             : 'markdown prose dark:prose-invert light dark:text-gray-100 w-full',
         )}
         style={isCreatedByUser ? { backgroundColor: '#003f7a' } : undefined}

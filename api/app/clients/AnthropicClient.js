@@ -812,7 +812,7 @@ class AnthropicClient extends BaseClient {
     logger.debug('[AnthropicClient]', { ...requestOptions });
     const handlers = createStreamEventHandlers(this.options.res);
     this.streamHandler = new SplitStreamHandler({
-      accumulate: true,
+      accumulate: false,
       runId: this.responseMessageId,
       handlers,
     });

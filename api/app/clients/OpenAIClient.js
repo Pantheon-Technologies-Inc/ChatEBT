@@ -533,25 +533,54 @@ class OpenAIClient extends BaseClient {
     const useOldMethod = !!(invalidBaseUrl || !this.isChatCompletion);
 
     // Check if we should use Responses API (enabled by default for OpenAI chat completions)
-    const useResponsesAPI = process.env.USE_RESPONSES_API !== 'false' && this.isChatCompletion && !this.useOpenRouter && !this.isOllama;
+    // Allow per-request override via modelOptions.useResponsesApi (boolean)
+    const useResponsesAPIFlag =
+      typeof this.modelOptions?.useResponsesApi === 'boolean'
+        ? this.modelOptions.useResponsesApi
+        : process.env.USE_RESPONSES_API !== 'false';
+
+    const useResponsesAPI =
+      useResponsesAPIFlag && this.isChatCompletion && !this.useOpenRouter && !this.isOllama;
 
     if (useResponsesAPI) {
-      // Convert messages to Responses API input format
-      const { input, instructions } = await this.convertMessagesToResponsesInput(payload);
+      logger.info('[OpenAIClient] Using Responses API for completion');
+      try {
+        // Convert messages to Responses API input format
+        const { input, instructions } = await this.convertMessagesToResponsesInput(payload);
 
-      // Add instructions to model options if present
-      if (instructions) {
-        this.modelOptions.instructions = instructions;
+        logger.debug('[OpenAIClient] Converted to Responses API format:', {
+          inputLength: input.length,
+          hasInstructions: !!instructions,
+          lastInputContent: input[input.length - 1]?.content,
+        });
+
+        // Add instructions to model options if present
+        if (instructions) {
+          this.modelOptions.instructions = instructions;
+        }
+
+        reply = await this.responseCompletion({
+          input,
+          onProgress: opts.onProgress,
+          abortController: opts.abortController,
+          conversationId: this.conversationId,
+        });
+
+        return (reply ?? '').trim();
+      } catch (error) {
+        logger.error(
+          '[OpenAIClient] Responses API error, falling back to Chat Completions:',
+          error,
+        );
+        // Fall through to use Chat Completions as fallback
       }
-
-      reply = await this.responseCompletion({
-        input,
-        onProgress: opts.onProgress,
-        abortController: opts.abortController,
-        conversationId: this.conversationId,
+    } else {
+      logger.info('[OpenAIClient] Using Chat Completions API', {
+        useResponsesAPI: process.env.USE_RESPONSES_API,
+        isChatCompletion: this.isChatCompletion,
+        useOpenRouter: this.useOpenRouter,
+        isOllama: this.isOllama,
       });
-
-      return (reply ?? '').trim();
     }
 
     // Fallback to old chat completions API for non-OpenAI endpoints
@@ -857,7 +886,7 @@ ${convo}
     } catch (e) {
       if (e?.message?.toLowerCase()?.includes('abort')) {
         logger.debug('[OpenAIClient] Aborted title generation');
-        return;
+        return title;
       }
       logger.error(
         '[OpenAIClient] There was an issue generating title with LangChain, trying completion method...',
@@ -1134,15 +1163,35 @@ ${convo}
   }
 
   /**
-   * Converts a file to base64-encoded data URI for inline submission in Responses API
+   * Converts a file to Responses API content part format
+   * Supports file_id, file_url, or base64-encoded file_data
    * @param {MongoFile} file - The file object
-   * @returns {Promise<{type: string, filename: string, file_data: string}>}
+   * @returns {Promise<{type: string, file_id?: string, file_url?: string, filename?: string, file_data?: string}>}
    */
-  async convertFileToBase64ContentPart(file) {
+  async convertFileToContentPart(file) {
     const fs = require('fs').promises;
     const path = require('path');
 
-    // If file has a filepath, read it and convert to base64
+    // Priority 1: If file has an OpenAI file_id (from metadata.fileIdentifier), use that
+    if (file.metadata?.fileIdentifier) {
+      return {
+        type: 'input_file',
+        file_id: file.metadata.fileIdentifier,
+      };
+    }
+
+    // Priority 2: If file has a publicly accessible URL, use that
+    if (
+      file.filepath &&
+      (file.filepath.startsWith('http://') || file.filepath.startsWith('https://'))
+    ) {
+      return {
+        type: 'input_file',
+        file_url: file.filepath,
+      };
+    }
+
+    // Priority 3: For local files, read and convert to base64
     if (file.filepath) {
       try {
         const fileBuffer = await fs.readFile(file.filepath);
@@ -1152,7 +1201,7 @@ ${convo}
         return {
           type: 'input_file',
           filename: file.filename || path.basename(file.filepath),
-          file_data: `data:${mimeType};base64,${base64Data}`
+          file_data: `data:${mimeType};base64,${base64Data}`,
         };
       } catch (error) {
         logger.error('[OpenAIClient] Error reading file for base64 conversion:', error);
@@ -1160,17 +1209,25 @@ ${convo}
       }
     }
 
-    // If file is already embedded (base64 in image_urls), use that
+    // If file is embedded (base64 data in filepath), use that
     if (file.embedded && file.filepath) {
-      const mimeType = file.type || 'application/octet-stream';
       return {
         type: 'input_file',
         filename: file.filename,
-        file_data: `data:${mimeType};base64,${file.filepath.split(',')[1]}`
+        file_data: file.filepath.startsWith('data:')
+          ? file.filepath
+          : `data:${file.type};base64,${file.filepath}`,
       };
     }
 
-    throw new Error('File must have either a filepath or embedded data');
+    logger.warn('[OpenAIClient] File has no usable source for Responses API:', {
+      filename: file.filename,
+      type: file.type,
+      hasFilepath: !!file.filepath,
+      hasMetadata: !!file.metadata,
+    });
+
+    throw new Error(`File ${file.filename} has no usable source (file_id, URL, or filepath)`);
   }
 
   /**
@@ -1183,10 +1240,13 @@ ${convo}
     const input = [];
     let instructions = null;
 
-    for (const message of messages) {
+    for (let i = 0; i < messages.length; i++) {
+      const message = messages[i];
+
       // Extract system message as instructions
       if (message.role === 'system') {
-        instructions = typeof message.content === 'string' ? message.content : message.content?.text;
+        instructions =
+          typeof message.content === 'string' ? message.content : message.content?.text;
         continue;
       }
 
@@ -1199,31 +1259,50 @@ ${convo}
         if (text) {
           contentParts.push({
             type: 'input_text',
-            text: text
+            text: text,
           });
         }
 
-        // Add files if this is the latest message and has files
+        // Check if this message has files in the message_file_map
+        const messageFiles = this.message_file_map?.[message.messageId] || [];
+
+        // Handle files attached to this message
+        for (const file of messageFiles) {
+          try {
+            // For images with base64 data already embedded
+            if (file.type?.startsWith('image/') && file.embedded) {
+              const url = file.filepath || file.preview;
+              if (url && url.startsWith('data:')) {
+                contentParts.push({
+                  type: 'input_image',
+                  image_url: url,
+                });
+              }
+            }
+            // For documents and other files, use file_id or file_url
+            else if (file.filepath || file.file_id || file.metadata?.fileIdentifier) {
+              const filePart = await this.convertFileToContentPart(file);
+              contentParts.push(filePart);
+            }
+          } catch (error) {
+            logger.error('[OpenAIClient] Error converting file for Responses API:', error);
+            // Skip this file but continue with others
+          }
+        }
+
+        // Also handle legacy image_urls format
         if (message.image_urls && message.image_urls.length > 0) {
-          // Handle image URLs (vision models)
           for (const imageUrl of message.image_urls) {
             if (imageUrl.image_url?.url) {
               const url = imageUrl.image_url.url;
-              // If it's a base64 data URI, extract it
-              if (url.startsWith('data:')) {
-                const filename = `image_${contentParts.length}.${url.split(';')[0].split('/')[1]}`;
+              // Check if we haven't already added this from message_file_map
+              const alreadyAdded = contentParts.some(
+                (part) => part.type === 'input_image' && part.image_url === url,
+              );
+              if (!alreadyAdded) {
                 contentParts.push({
-                  type: 'input_file',
-                  filename,
-                  file_data: url
-                });
-              } else {
-                // If it's a URL, we might need to fetch and convert it
-                // For now, keep it as is (Responses API might support URLs)
-                contentParts.push({
-                  type: 'input_file',
-                  filename: url.split('/').pop() || 'image',
-                  file_data: url
+                  type: 'input_image',
+                  image_url: url,
                 });
               }
             }
@@ -1232,16 +1311,18 @@ ${convo}
 
         input.push({
           role: 'user',
-          content: contentParts.length === 1 && contentParts[0].type === 'input_text'
-            ? contentParts[0].text  // If only text, simplify to string
-            : contentParts
+          content:
+            contentParts.length === 1 && contentParts[0].type === 'input_text'
+              ? contentParts[0].text // If only text, simplify to string
+              : contentParts,
         });
       }
       // Handle assistant messages - these are always simple text
       else if (message.role === 'assistant') {
         input.push({
           role: 'assistant',
-          content: typeof message.content === 'string' ? message.content : message.content?.text || ''
+          content:
+            typeof message.content === 'string' ? message.content : message.content?.text || '',
         });
       }
     }
@@ -1279,6 +1360,22 @@ ${convo}
         modelOptions.stream = true;
       }
 
+      // Enable built-in OpenAI web_search tool when requested (Responses API)
+      if (this.modelOptions?.web_search === true) {
+        try {
+          modelOptions.tools = Array.isArray(modelOptions.tools) ? modelOptions.tools : [];
+          // Avoid duplicates
+          const hasWebSearch = modelOptions.tools.some((t) => t?.type === 'web_search');
+          if (!hasWebSearch) {
+            modelOptions.tools.push({ type: 'web_search' });
+          }
+          // Let the model decide when to use search
+          if (modelOptions.tool_choice == null) {
+            modelOptions.tool_choice = 'auto';
+          }
+        } catch {}
+      }
+
       // Responses API uses 'input' instead of 'messages'
       modelOptions.input = input;
 
@@ -1287,7 +1384,9 @@ ${convo}
         modelOptions.conversation_id = conversationId;
       }
 
-      const baseURL = extractBaseURL(this.completionsUrl.replace('/chat/completions', '/responses'));
+      const baseURL = extractBaseURL(
+        this.completionsUrl.replace('/chat/completions', '/responses'),
+      );
       logger.debug('[OpenAIClient] responseCompletion', { baseURL, modelOptions });
 
       const opts = {
@@ -1358,6 +1457,37 @@ ${convo}
         });
       }
 
+      /** Note: OpenAI Web Search models do not support many parameters besides `max_tokens`.
+       * Ensure we drop unsupported params when search is enabled or using a search model.
+       */
+      if (
+        (modelOptions.model && /gpt-4o.*search/i.test(modelOptions.model)) ||
+        modelOptions.web_search === true ||
+        (Array.isArray(modelOptions.tools) &&
+          modelOptions.tools.some((t) => t?.type === 'web_search'))
+      ) {
+        const searchExcludeParams = [
+          'frequency_penalty',
+          'presence_penalty',
+          'temperature',
+          'top_p',
+          'top_k',
+          'stop',
+          'logit_bias',
+          'seed',
+          'response_format',
+          'n',
+          'logprobs',
+          'user',
+          'metadata',
+        ];
+
+        this.options.dropParams = this.options.dropParams || [];
+        this.options.dropParams = [
+          ...new Set([...this.options.dropParams, ...searchExcludeParams]),
+        ];
+      }
+
       if (this.options.dropParams && Array.isArray(this.options.dropParams)) {
         const dropParams = [...this.options.dropParams];
         dropParams.forEach((param) => {
@@ -1391,7 +1521,7 @@ ${convo}
       const handlers = createStreamEventHandlers(this.options.res);
       this.streamHandler = new SplitStreamHandler({
         reasoningKey: this.useOpenRouter ? 'reasoning' : 'reasoning_content',
-        accumulate: true,
+        accumulate: false,
         runId: this.responseMessageId,
         handlers,
       });
@@ -1559,9 +1689,7 @@ ${convo}
         err?.message?.includes(
           'OpenAI error: Invalid final message: OpenAI expects final message to include role=assistant',
         ) ||
-        err?.message?.includes(
-          'stream ended without producing a message with role=assistant',
-        ) ||
+        err?.message?.includes('stream ended without producing a message with role=assistant') ||
         err?.message?.includes('The server had an error processing your request') ||
         err?.message?.includes('missing finish_reason') ||
         err?.message?.includes('missing role') ||
@@ -1835,7 +1963,7 @@ ${convo}
       const handlers = createStreamEventHandlers(this.options.res);
       this.streamHandler = new SplitStreamHandler({
         reasoningKey,
-        accumulate: true,
+        accumulate: false,
         runId: this.responseMessageId,
         handlers,
       });

@@ -220,6 +220,40 @@ class AgentClient extends BaseClient {
       this.options.agent.provider,
       VisionModes.agents,
     );
+
+    // FIX: Handle PDF files that encodeAndFormat skips (no height property)
+    const fs = require('fs').promises;
+    for (const file of files) {
+      // Check if this file was already added as an image
+      const hasImageUrl = image_urls.some(
+        (img) =>
+          img.image_url?.url?.includes(file.file_id) ||
+          img.image_url?.url?.includes(file.filename),
+      );
+
+      // If not in image_urls and is a PDF, convert to base64
+      if (!hasImageUrl && file.filepath && file.type?.includes('pdf')) {
+        try {
+          const fileBuffer = await fs.readFile(file.filepath);
+          const base64Data = fileBuffer.toString('base64');
+
+          // Add PDF as image_url (vision models can read PDFs this way)
+          image_urls.push({
+            type: ContentTypes.IMAGE_URL,
+            image_url: {
+              url: `data:${file.type};base64,${base64Data}`,
+            },
+          });
+
+          logger.info(
+            `[AgentClient] Added PDF ${file.filename} for vision API (${(base64Data.length / 1024).toFixed(2)}KB)`,
+          );
+        } catch (error) {
+          logger.error(`[AgentClient] Error reading PDF ${file.filename}:`, error);
+        }
+      }
+    }
+
     message.image_urls = image_urls.length ? image_urls : undefined;
     if (text && text.length) {
       message.ocr = text;
@@ -619,7 +653,8 @@ class AgentClient extends BaseClient {
       const cache_creation = Number(usage.input_token_details?.cache_creation) || 0;
       const cache_read = Number(usage.input_token_details?.cache_read) || 0;
 
-      const modelName = usage.model ?? model ?? this.model ?? this.options.agent.model_parameters.model;
+      const modelName =
+        usage.model ?? model ?? this.model ?? this.options.agent.model_parameters.model;
       const endpoint = this.options.endpoint;
 
       const txMetadata = {
@@ -1050,9 +1085,11 @@ class AgentClient extends BaseClient {
    *
    * @param {Object} params
    * @param {string} params.text
+   * @param {string} params.responseText
    * @param {string} params.conversationId
+   * @param {AbortController} params.abortController
    */
-  async titleConvo({ text, abortController }) {
+  async titleConvo({ text, responseText = '', conversationId, abortController }) {
     if (!this.run) {
       throw new Error('Run not initialized');
     }
@@ -1151,10 +1188,15 @@ class AgentClient extends BaseClient {
     }
 
     try {
+      // Format the conversation context for better title generation
+      const conversationContext = responseText
+        ? `User: ${text}\n\nAssistant: ${responseText}`
+        : text;
+
       const titleResult = await this.run.generateTitle({
         provider,
         clientOptions,
-        inputText: text,
+        inputText: conversationContext,
         contentParts: this.contentParts,
         titleMethod: endpointConfig?.titleMethod,
         titlePrompt: endpointConfig?.titlePrompt,

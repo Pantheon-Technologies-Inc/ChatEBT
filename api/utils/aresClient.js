@@ -210,11 +210,7 @@ async function getValidAresToken(userId) {
   const identifier = 'ares';
 
   try {
-    logger.info('[aresClient] Starting token retrieval process', { 
-      userId, 
-      identifier,
-      timestamp: new Date().toISOString()
-    });
+    logger.debug('[aresClient] Starting token retrieval process');
 
     // Get current access token
     const tokenData = await findToken({
@@ -223,12 +219,7 @@ async function getValidAresToken(userId) {
       identifier,
     });
 
-    logger.info(`[aresClient] Token lookup completed - userId: ${userId}, tokenFound: ${!!tokenData}`);
-    if (tokenData) {
-      logger.info(`[aresClient] Token details - id: ${tokenData._id}, type: ${tokenData.type}, identifier: ${tokenData.identifier}, expires: ${tokenData.expiresAt}`);
-    } else {
-      logger.info(`[aresClient] Token lookup details - searching for userId: ${userId}, type: oauth, identifier: ares`);
-    }
+    logger.debug(`[aresClient] Token lookup completed - tokenFound: ${!!tokenData}`);
 
     if (!tokenData) {
       const error = new Error('ARES authentication required. Please sign in with ARES.');
@@ -247,12 +238,12 @@ async function getValidAresToken(userId) {
     const isExpiringSoon = tokenData.expiresAt && fiveMinutesFromNow >= tokenData.expiresAt;
     const needsRefresh = isExpired || isExpiringSoon;
 
-    logger.info(`[aresClient] Token expiry check - expires: ${tokenData.expiresAt}, isExpired: ${isExpired}, isExpiringSoon: ${isExpiringSoon}, needsRefresh: ${needsRefresh}`);
+    logger.debug(`[aresClient] Token expiry check - needsRefresh: ${needsRefresh}`);
 
     if (!needsRefresh) {
       // Token is still valid, decrypt and return
       const decryptedToken = await decryptV2(tokenData.token);
-      logger.info(`[aresClient] Using existing valid token - expires in ${Math.round((tokenData.expiresAt - now) / 60000)} minutes`);
+      logger.debug(`[aresClient] Using existing valid token - expires in ${Math.round((tokenData.expiresAt - now) / 60000)} minutes`);
       return decryptedToken;
     }
 

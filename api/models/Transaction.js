@@ -20,21 +20,8 @@ async function deductAresCredits({ userId, credits, usage, model, conversationId
   try {
     const usageDescription = usage || `AI conversation using ${model || 'unknown model'}`;
 
-    // Use console.log for immediate debugging visibility
-    console.log('\n🚀 ===== ARES API CALL DEBUG =====');
-    console.log(`User ID: ${userId}`);
-    console.log(`Credits to Deduct: ${credits}`);
-    console.log(`USD Equivalent: $${(credits * 0.002).toFixed(4)}`);
-    console.log(`Usage Description: ${usageDescription}`);
-    console.log(`Model: ${model}`);
-    console.log(`Conversation ID: ${conversationId}`);
-    console.log(`API URL: https://oauth.joinares.com/v1/partner/usage`);
-    console.log('Request Payload:', {
-      client_id: 'ChatEBT',
-      usage: usageDescription,
-      credits: credits,
-    });
-    console.log('=====================================\n');
+    // Minimal ARES logging
+    logger.debug(`[ARES] Deducting ${credits} credits ($${(credits * 0.002).toFixed(4)}) - ${model}`);
 
     const requestBody = {
       client_id: 'ChatEBT',
@@ -49,11 +36,7 @@ async function deductAresCredits({ userId, credits, usage, model, conversationId
       body: JSON.stringify(requestBody),
     });
 
-    logger.info('[deductAresCredits] Successfully deducted ARES credits', {
-      userId,
-      credits,
-      response: aresResponse,
-    });
+    logger.info(`[ARES] ✓ Deducted ${credits} credits`);
 
     return aresResponse;
   } catch (error) {
@@ -397,34 +380,8 @@ async function createAresTransaction(txData) {
   // The transaction.tokenValue is already in ARES credits
   // transaction.rate is the USD rate per 1M tokens
 
-  // Use console.log for immediate debugging visibility
-  console.log('\n🔥 ===== ARES CREDIT CALCULATION DEBUG =====');
-  console.log(`User: ${transaction.user}`);
-  console.log(`Token Type: ${transaction.tokenType}`);
-  console.log(`Model: ${transaction.model}`);
-  console.log(`Context: ${transaction.context}`);
-  console.log(`Raw Token Amount: ${transaction.rawAmount}`);
-  console.log(`Absolute Tokens: ${Math.abs(transaction.rawAmount)}`);
-  console.log(`USD Rate: $${transaction.rate} per 1M tokens`);
-  console.log(`Token Value (ARES Credits): ${transaction.tokenValue}`);
-  console.log(`Exact Credits: ${exactCredits}`);
-  console.log(`Credits to Deduct: ${aresCreditsToDeduct}`);
-  console.log(`USD Equivalent: $${(aresCreditsToDeduct * 0.002).toFixed(6)}`);
-  console.log(`Will Charge: ${aresCreditsToDeduct > 0}`);
-  console.log('\n📊 Step-by-Step Calculation:');
-  console.log(
-    `1. ${Math.abs(transaction.rawAmount)} tokens × $${transaction.rate} USD rate = $${((Math.abs(transaction.rawAmount) * transaction.rate) / 1000000).toFixed(6)}`,
-  );
-  console.log(
-    `2. $${((Math.abs(transaction.rawAmount) * transaction.rate) / 1000000).toFixed(6)} ÷ $0.002 = ${exactCredits} ARES credits`,
-  );
-  console.log(
-    `3. ${exactCredits} exact credits → ${aresCreditsToDeduct} final credits (after fractional logic)`,
-  );
-  console.log(
-    `4. ${aresCreditsToDeduct} credits × $0.002 = $${(aresCreditsToDeduct * 0.002).toFixed(6)} USD equivalent`,
-  );
-  console.log('===============================================\n');
+  // Minimal ARES calculation logging
+  logger.debug(`[ARES] ${transaction.tokenType}: ${Math.abs(transaction.rawAmount)} tokens → ${aresCreditsToDeduct} credits ($${(aresCreditsToDeduct * 0.002).toFixed(4)})`);
 
   // If skipCharge is true, return the transaction info without charging
   if (txData.skipCharge) {

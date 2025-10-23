@@ -15,6 +15,7 @@ This project has been migrated from OpenAI's Chat Completions API to the new **R
 ### What Changed
 
 #### Backend (API)
+
 - **`api/app/clients/OpenAIClient.js`**:
   - Added `responseCompletion()` method to call the `/v1/responses` endpoint
   - Added `convertMessagesToResponsesInput()` to convert messages to new format
@@ -22,7 +23,9 @@ This project has been migrated from OpenAI's Chat Completions API to the new **R
   - Updated `sendCompletion()` to use Responses API by default
 
 #### Frontend (Client)
+
 - **`client/src/components/Chat/Input/Files/`**:
+
   - Unified `AttachFile.tsx` - now handles all file types with a single button
   - Updated `AttachFileChat.tsx` - removed specialized upload buttons
   - Simplified `useFileHandling.ts` - removed `tool_resource` logic
@@ -55,9 +58,21 @@ USE_RESPONSES_API=false
 1. **OpenAI SDK**: Ensure you're using a version that supports the Responses API
 2. **OpenAI API Key**: Standard OpenAI API key with access to GPT-4 or GPT-3.5
 
+## Repo-specific additions
+
+- Per-request override: Set `model_parameters.useResponsesApi` to `true` or `false` on a request to force using the Responses API or legacy Chat Completions for that request. The server now propagates `endpointOption.model_parameters` into `OpenAIClient.modelOptions`.
+- Built-in web search: Set `model_parameters.web_search: true` to enable OpenAI's built-in web search tool on Responses API requests. The client automatically adds `{ type: 'web_search' }` to `tools`, uses `tool_choice: 'auto'`, and drops unsupported params (e.g., `temperature`, `top_p`, `stop`, etc.) when search is enabled or when using a `gpt-4o*search` model. A corresponding toggle exists in the UI configuration.
+- Environment default: `.env` now includes `USE_RESPONSES_API=true` (default). Set to `'false'` to use legacy Chat Completions by default.
+- Unified file handling: When messages have files attached, they are converted to Responses API parts:
+  - If a file has `metadata.fileIdentifier` (OpenAI file_id), we send `input_file` with `file_id`
+  - If `filepath` is a public URL, we send `input_file` with `file_url`
+  - Otherwise, we embed base64 data as `input_file.file_data`
+  - Images with embedded data are sent as `input_image` with `image_url`
+
 ## API Differences
 
 ### Old Format (Chat Completions)
+
 ```javascript
 {
   model: "gpt-4",
@@ -70,6 +85,7 @@ USE_RESPONSES_API=false
 ```
 
 ### New Format (Responses API)
+
 ```javascript
 {
   model: "gpt-4",
@@ -90,19 +106,23 @@ USE_RESPONSES_API=false
 ## File Handling
 
 ### Before (Chat Completions)
+
 - Files uploaded via separate `/v1/files` endpoint
 - Different buttons for different file types
 - Vision models required special handling
 - File IDs referenced in messages
 
 ### After (Responses API)
+
 - Files sent inline as base64-encoded content parts
 - Single upload button for all file types
 - Automatic detection of file purpose (vision, search, etc.)
 - No separate upload step required
 
 ### Supported File Types
+
 The Responses API automatically handles:
+
 - **Images**: JPEG, PNG, GIF, WebP, HEIC (auto-converted)
 - **Documents**: PDF, DOCX, TXT, MD
 - **Data**: CSV, JSON, XML
@@ -113,24 +133,28 @@ The Responses API automatically handles:
 ### Test Cases
 
 1. **Text-only conversation**:
+
    ```
    User: Hello
    Assistant: Hi! How can I help you today?
    ```
 
 2. **Image upload**:
+
    ```
    User: [uploads image.jpg] What's in this image?
    Assistant: I can see...
    ```
 
 3. **Document upload**:
+
    ```
    User: [uploads document.pdf] Summarize this
    Assistant: This document discusses...
    ```
 
 4. **Multiple files**:
+
    ```
    User: [uploads image.jpg, doc.pdf] Compare these
    Assistant: Comparing the image and document...
@@ -147,6 +171,7 @@ The Responses API automatically handles:
 ### Verification
 
 Check browser console for:
+
 ```
 [OpenAIClient] responseCompletion { baseURL: 'https://api.openai.com/v1/responses', ... }
 ```
@@ -156,22 +181,26 @@ If you see `chatCompletion` instead, the migration is not active.
 ## Troubleshooting
 
 ### Issue: Files not uploading
+
 - Check that `USE_RESPONSES_API=true` in `.env`
 - Verify file size is within limits
 - Check browser console for errors
 
 ### Issue: "openai.responses is not a function"
+
 - Your OpenAI SDK version may not support Responses API yet
 - Check package version: `npm list openai`
 - Update if needed: `npm update openai`
 
 ### Issue: Conversation context lost
+
 - Ensure `conversationId` is being passed to `responseCompletion()`
 - Check server logs for conversation state management
 
 ### Fallback to Chat Completions
 
 The code automatically falls back to Chat Completions for:
+
 - OpenRouter endpoints
 - Ollama endpoints
 - Azure OpenAI (until supported)
@@ -210,6 +239,7 @@ The code automatically falls back to Chat Completions for:
 ## Support
 
 For issues or questions:
+
 1. Check server logs in `api/logs/`
 2. Check browser console for client errors
 3. Review this migration guide

@@ -169,22 +169,9 @@ const checkAresBalance = async ({ req, res, txData }) => {
     const aresProfile = await callAresAPI(userId, 'user');
     const currentCredits = aresProfile?.user?.credits || 0;
 
-    // Use console.log for immediate debugging visibility
-    console.log('\n⚖️ ===== BALANCE CHECK DEBUG =====');
-    console.log(`User ID: ${userId}`);
-    console.log(`Token Type: ${txData.tokenType}`);
-    console.log(`Token Amount: ${txData.amount}`);
-    console.log(`Model: ${txData.model}`);
-    console.log(`USD Rate: ${usdRate} per 1M tokens`);
-    console.log(`USD Cost: $${usdCost.toFixed(6)}`);
-    console.log(`Current ARES Credits: ${currentCredits}`);
-    console.log(`Exact Credits Needed: ${exactCredits}`);
-    console.log(`Credits Required: ${aresCreditsRequired}`);
-    console.log(`Balance Check: ${currentCredits >= aresCreditsRequired ? 'PASS ✅' : 'FAIL ❌'}`);
-    console.log(
-      `Calculation: (${txData.amount} tokens × $${usdRate}) ÷ 1,000,000 = $${usdCost.toFixed(6)} → ${exactCredits} ARES credits`,
-    );
-    console.log('==================================\n');
+    // Minimal ARES balance check logging
+    const balanceStatus = currentCredits >= aresCreditsRequired ? 'PASS ✅' : 'FAIL ❌';
+    logger.debug(`[ARES] Balance check: ${aresCreditsRequired} credits needed, ${currentCredits} available - ${balanceStatus}`);
 
     if (currentCredits >= aresCreditsRequired) {
       return true;

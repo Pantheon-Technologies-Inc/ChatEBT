@@ -159,6 +159,20 @@ const initializeClient = async ({
     return options;
   }
 
+  // Ensure model parameters from the request (endpointOption.model_parameters)
+  // are propagated to the OpenAI client as modelOptions so per-request flags
+  // like `useResponsesApi` and `web_search` are honored by OpenAIClient.
+  if (!clientOptions.modelOptions) {
+    const modelOptions = Object.assign({}, endpointOption?.model_parameters);
+    if (!modelOptions || typeof modelOptions !== 'object') {
+      clientOptions.modelOptions = { model: modelName };
+    } else {
+      clientOptions.modelOptions = modelOptions;
+      clientOptions.modelOptions.model = modelName;
+    }
+    clientOptions.modelOptions.user = req.user.id;
+  }
+
   const client = new OpenAIClient(apiKey, Object.assign({ req, res }, clientOptions));
   return {
     client,

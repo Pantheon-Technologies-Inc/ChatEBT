@@ -1,0 +1,68 @@
+### PDF Support Fix for Agents Endpoint
+
+Location: `/api/server/controllers/agents/client.js`
+
+Find the `addImageURLs` method (around line 216) and replace it with:
+
+```javascript
+async addImageURLs(message, attachments) {
+  const { files, text, image_urls } = await encodeAndFormat(
+    this.options.req,
+    attachments,
+    this.options.agent.provider,
+    VisionModes.agents,
+  );
+
+  // FIX: Handle PDF files that encodeAndFormat skips (no height property)
+  const fs = require('fs').promises;
+
+  for (const file of files) {
+    // Check if this file was already added as an image
+    const hasImageUrl = image_urls.some(img =>
+      img.image_url?.url?.includes(file.file_id) ||
+      img.image_url?.url?.includes(file.filename)
+    );
+
+    // If not in image_urls and is a PDF, convert to base64
+    if (!hasImageUrl && file.filepath && file.type?.includes('pdf')) {
+      try {
+        const fileBuffer = await fs.readFile(file.filepath);
+        const base64Data = fileBuffer.toString('base64');
+
+        // Add PDF as image_url (vision models can read PDFs this way)
+        image_urls.push({
+          type: ContentTypes.IMAGE_URL,
+          image_url: {
+            url: `data:${file.type};base64,${base64Data}`,
+          }
+        });
+
+        logger.info(`[AgentClient] Added PDF ${file.filename} for vision API (${(base64Data.length / 1024).toFixed(2)}KB)`);
+      } catch (error) {
+        logger.error(`[AgentClient] Error reading PDF ${file.filename}:`, error);
+      }
+    }
+  }
+
+  message.image_urls = image_urls.length ? image_urls : undefined;
+  if (text && text.length) {
+    message.ocr = text;
+  }
+  return files;
+}
+```
+
+This fix:
+1. Checks each file after `encodeAndFormat` runs
+2. Finds PDFs that were skipped (no height property)
+3. Reads them from disk and converts to base64
+4. Adds them to `image_urls` so vision models can process them
+5. Adds logging to confirm the file was included
+
+After applying this fix:
+1. Restart your API server
+2. Upload the PDF again
+3. Check logs for: `[AgentClient] Added PDF ARES - Investor Deck.pdf for vision API`
+4. The token count should jump from 12 to thousands
+
+The PDF will be sent to the vision model which can extract text and analyze charts/images in the PDF.
