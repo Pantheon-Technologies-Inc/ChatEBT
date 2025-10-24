@@ -11,6 +11,7 @@ const {
   isAgentsEndpoint,
   replaceSpecialVars,
   providerEndpointMap,
+  Tools,
 } = require('librechat-data-provider');
 const generateArtifactsPrompt = require('~/app/clients/prompts/artifacts');
 const { getProviderConfig } = require('~/server/services/Endpoints');
@@ -18,6 +19,7 @@ const { processFiles } = require('~/server/services/Files/process');
 const { getFiles, getToolFilesByIds } = require('~/models/File');
 const { getConvoFiles } = require('~/models/Conversation');
 const { getModelMaxTokens } = require('~/utils');
+const { logger } = require('@librechat/data-schemas');
 
 /**
  * @param {object} params
@@ -89,6 +91,42 @@ const initializeAgent = async ({
     requestFileSet: new Set(requestFiles?.map((file) => file.file_id)),
     agentId: agent.id,
   });
+
+  // If RAG is disabled and provider is OpenAI, ensure file_search tool is enabled
+  // and seed its tool_resources with any newly attached file_ids so the tool can search them.
+  try {
+    const ragDisabled = !process.env.RAG_API_URL;
+    if (ragDisabled && agent.provider === Providers.OPENAI) {
+      if (!Array.isArray(agent.tools)) {
+        agent.tools = [];
+      }
+      if (!agent.tools.includes(Tools.file_search)) {
+        agent.tools.push(Tools.file_search);
+      }
+      // Seed tool_resources.file_search.file_ids with current attachments (non-images)
+      const nonImageAttachments = Array.isArray(attachments)
+        ? attachments.filter((f) => !(f?.type || '').startsWith('image/'))
+        : [];
+      if (nonImageAttachments.length > 0) {
+        tool_resources[EToolResources.file_search] =
+          tool_resources[EToolResources.file_search] || {};
+        const existing = tool_resources[EToolResources.file_search].file_ids || [];
+        const merged = new Set(existing);
+        for (const f of nonImageAttachments) {
+          if (f?.file_id) {
+            merged.add(f.file_id);
+          }
+        }
+        tool_resources[EToolResources.file_search].file_ids = Array.from(merged);
+      }
+      logger.info('[Agents:init] Injected file_search tool for OpenAI with RAG disabled', {
+        toolAdded: true,
+        fileIdsCount: tool_resources[EToolResources.file_search]?.file_ids?.length || 0,
+      });
+    }
+  } catch (e) {
+    logger.warn('[Agents:init] file_search injection failed', { error: e?.message });
+  }
 
   const provider = agent.provider;
   const { tools: structuredTools, toolContextMap } =
@@ -182,6 +220,18 @@ const initializeAgent = async ({
       endpoint: agent.provider,
       artifacts: agent.artifacts,
     });
+  }
+
+  // Debug: summarize Agents init state for file search issues
+  try {
+    logger.debug('[Agents:init]', {
+      provider: agent.provider,
+      ragEnabled: !!process.env.RAG_API_URL,
+      toolNames: Array.isArray(tools) ? tools.map((t) => t && t.name).filter(Boolean) : [],
+      attachmentsCount: Array.isArray(attachments) ? attachments.length : 0,
+    });
+  } catch (_) {
+    /* ignore logging errors */
   }
 
   return {

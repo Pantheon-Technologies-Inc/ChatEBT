@@ -543,15 +543,22 @@ class OpenAIClient extends BaseClient {
       useResponsesAPIFlag && this.isChatCompletion && !this.useOpenRouter && !this.isOllama;
 
     if (useResponsesAPI) {
-      logger.info('[OpenAIClient] Using Responses API for completion');
+      logger.info('[OpenAIClient] Using Responses API for completion', {
+        hasAttachments: !!(this.options.attachments && this.options.attachments.length > 0),
+        attachmentCount: this.options.attachments?.length || 0,
+        messageFileMapSize: this.message_file_map ? Object.keys(this.message_file_map).length : 0,
+      });
       try {
         // Convert messages to Responses API input format
-        const { input, instructions } = await this.convertMessagesToResponsesInput(payload);
+        // Pass attachments explicitly to ensure they're included
+        const attachments = this.options.attachments || [];
+        const { input, instructions } = await this.convertMessagesToResponsesInput(payload, attachments);
 
         logger.debug('[OpenAIClient] Converted to Responses API format:', {
           inputLength: input.length,
           hasInstructions: !!instructions,
           lastInputContent: input[input.length - 1]?.content,
+          attachmentsProvided: attachments.length,
         });
 
         // Add instructions to model options if present
@@ -772,13 +779,13 @@ class OpenAIClient extends BaseClient {
       model = this.modelOptions.model;
     }
 
-    const modelOptions = {
+    const maxTitleTokens = 16;
+    let modelOptions = {
       // TODO: remove the gpt fallback and make it specific to endpoint
       model,
       temperature: 0.2,
       presence_penalty: 0,
       frequency_penalty: 0,
-      max_tokens: 16,
     };
 
     /** @type {TAzureConfig | undefined} */
@@ -848,9 +855,13 @@ ${convo}
           useChatCompletion = false;
         }
 
+        const payloadOptions = {
+          ...modelOptions,
+          max_tokens: maxTitleTokens,
+        };
         title = (
           await this.sendPayload(instructionsPayload, {
-            modelOptions,
+            modelOptions: payloadOptions,
             useChatCompletion,
             context: 'title',
           })
@@ -1238,6 +1249,152 @@ ${convo}
     throw new Error(`File ${file.filename} has no usable source (file_id, URL, or filepath)`);
   }
 
+  // OpenAI hosted file_search (vector stores) helpers
+  // Creates one vector store per conversation (or user if no conversationId) and reuses it.
+  async ensureVectorStore(client) {
+    if (this.vectorStoreId) {
+      return this.vectorStoreId;
+    }
+    const name =
+      (this.conversationId && `conv_${this.conversationId}`) ||
+      (this.user && `user_${this.user}`) ||
+      'knowledge_base';
+    try {
+      const vs = await client.vectorStores.create({ name });
+      this.vectorStoreId = vs?.id || vs?.data?.id || vs;
+    } catch (e) {
+      // If creation fails (e.g., reverse proxy not supporting vector stores), bubble up
+      throw e;
+    }
+    return this.vectorStoreId;
+  }
+
+  // Ensures all non-image attachments are uploaded to OpenAI Files API and added to the vector store
+  async addFilesToVectorStore(client, vectorStoreId, files = []) {
+    const fs = require('fs');
+    const debugLogs = this.options?.debug || isEnabled(process.env.DEBUG_OPENAI);
+    for (const file of files) {
+      if (!file) continue;
+      // Skip images for vector store ingestion; they're handled as input_image parts
+      if (file?.type?.startsWith('image/')) continue;
+
+      try {
+        logger.info('[OpenAIClient:file_search] Preparing attachment for vector store', {
+          filename: file?.filename,
+          file_id: file?.file_id,
+          hasFilepath: !!file?.filepath,
+          source: file?.source,
+          hasMetadataId: !!file?.metadata?.fileIdentifier,
+        });
+      } catch (_) {
+        /* ignore */
+      }
+
+      let fileId = file?.metadata?.fileIdentifier || file?.file_id || null;
+
+      // Upload to OpenAI Files API if we don't already have a file id
+      if (!fileId) {
+        try {
+          if (!file.filepath) {
+            if (debugLogs) {
+              try {
+                logger.debug('[OpenAIClient] Skipping file upload; no filepath or existing id', {
+                  filename: file?.filename,
+                  file_id: file?.file_id,
+                  source: file?.source,
+                  hasMetadataId: !!file?.metadata?.fileIdentifier,
+                });
+              } catch (_) {
+                /* ignore */
+              }
+            }
+            continue;
+          }
+          const stream = fs.createReadStream(file.filepath);
+          const uploaded = await client.files.create({
+            file: stream,
+            purpose: 'assistants',
+          });
+          fileId = uploaded?.id;
+
+          if (debugLogs && fileId) {
+            try {
+              logger.debug('[OpenAIClient] Uploaded file to OpenAI Files', {
+                filename: file?.filename,
+                fileId,
+              });
+            } catch (_) {
+              /* ignore */
+            }
+          }
+        } catch (e) {
+          logger.warn('[OpenAIClient] Failed uploading file to OpenAI Files for file_search:', {
+            filename: file?.filename,
+            error: e?.message,
+          });
+          continue;
+        }
+      }
+
+      // Attach file to vector store
+      try {
+        await client.vectorStores.files.create(vectorStoreId, { file_id: fileId });
+        if (debugLogs) {
+          try {
+            logger.debug('[OpenAIClient] Attached file to vector store', {
+              vectorStoreId,
+              fileId,
+            });
+          } catch (_) {
+            /* ignore */
+          }
+        }
+      } catch (e) {
+        logger.warn('[OpenAIClient] Failed attaching file to vector store:', {
+          vectorStoreId,
+          fileId,
+          error: e?.message,
+        });
+      }
+    }
+  }
+
+  // Wait for vector store files to be processed (status === 'completed')
+  async waitForVectorStoreReady(client, vectorStoreId, { timeoutMs = 120000, pollMs = 1500 } = {}) {
+    const start = Date.now();
+    const debugLogs = this.options?.debug || isEnabled(process.env.DEBUG_OPENAI);
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const res = await client.vectorStores.files.list({ vector_store_id: vectorStoreId });
+        const files = res?.data ?? res?.body?.data ?? [];
+        if (files.length > 0 && files.every((f) => f?.status === 'completed')) {
+          if (debugLogs) {
+            try {
+              logger.debug('[OpenAIClient] Vector store files ready', {
+                vectorStoreId,
+                fileCount: files.length,
+              });
+            } catch (_) {
+              /* ignore */
+            }
+          }
+          return true;
+        }
+      } catch (e) {
+        logger.warn('[OpenAIClient] Error polling vector store status:', {
+          vectorStoreId,
+          error: e?.message,
+        });
+      }
+      await sleep(pollMs);
+    }
+    logger.warn('[OpenAIClient] Timed out waiting for vector store files to be ready', {
+      vectorStoreId,
+      timeoutMs,
+    });
+    return false;
+  }
+
   /**
    * Converts traditional messages format to Responses API input format
    * @param {Array} messages - Array of message objects
@@ -1247,6 +1404,13 @@ ${convo}
   async convertMessagesToResponsesInput(messages, files = []) {
     const input = [];
     let instructions = null;
+
+    logger.debug('[OpenAIClient:convertMessagesToResponsesInput] Starting conversion', {
+      messageCount: messages.length,
+      filesProvided: files.length,
+      hasOptionsAttachments: !!(this.options.attachments && this.options.attachments.length > 0),
+      messageFileMapSize: this.message_file_map ? Object.keys(this.message_file_map).length : 0,
+    });
 
     // Identify the last user message index to attach current-turn files when message ids are missing
     const lastUserIndex = (() => {
@@ -1266,6 +1430,12 @@ ${convo}
         : Array.isArray(this.options.attachments)
           ? this.options.attachments
           : []) || [];
+
+    logger.debug('[OpenAIClient:convertMessagesToResponsesInput] Attachment sources', {
+      lastUserIndex,
+      fallbackAttachmentCount: fallbackAttachments.length,
+      fallbackFileNames: fallbackAttachments.map(f => f?.filename || 'unknown'),
+    });
 
     for (let i = 0; i < messages.length; i++) {
       const message = messages[i];
@@ -1298,7 +1468,19 @@ ${convo}
           fallbackAttachments.length > 0
         ) {
           messageFiles = fallbackAttachments;
+          logger.debug('[OpenAIClient:convertMessagesToResponsesInput] Using fallback attachments for last user message', {
+            messageIndex: i,
+            fileCount: messageFiles.length,
+            messageId: message.messageId,
+          });
         }
+
+        logger.debug('[OpenAIClient:convertMessagesToResponsesInput] Processing user message files', {
+          messageIndex: i,
+          messageId: message.messageId,
+          fileCount: messageFiles.length,
+          fileNames: messageFiles.map(f => f?.filename || 'unknown'),
+        });
 
         // De-dup keys for files/images
         const seen = new Set();
@@ -1406,39 +1588,175 @@ ${convo}
       }
 
       let modelOptions = { ...this.modelOptions };
+      const debugLogs = this.options.debug || isEnabled(process.env.DEBUG_OPENAI);
+
+      // Enhanced debugging for Responses API
+      logger.info('[OpenAIClient:ResponsesAPI] Starting response completion', {
+        hasAttachments: !!(this.options.attachments && this.options.attachments.length > 0),
+        attachmentCount: this.options.attachments?.length || 0,
+        hasMessageFileMap: !!this.message_file_map,
+        messageFileMapKeys: this.message_file_map ? Object.keys(this.message_file_map) : [],
+        inputLength: input.length,
+        modelOptionsWebSearch: modelOptions?.web_search,
+        modelOptionsFileSearch: modelOptions?.file_search,
+      });
 
       if (typeof onProgress === 'function') {
         modelOptions.stream = true;
       }
 
       // Enable built-in OpenAI web_search tool when requested (Responses API)
-      if (this.modelOptions?.web_search === true) {
+      const shouldEnableWebSearch = this.modelOptions?.web_search === true ||
+                                    this.modelOptions?.webSearch === true ||
+                                    this.options?.webSearch === true;
+
+      if (shouldEnableWebSearch) {
         try {
           modelOptions.tools = Array.isArray(modelOptions.tools) ? modelOptions.tools : [];
           // Avoid duplicates
           const hasWebSearch = modelOptions.tools.some((t) => t?.type === 'web_search');
           if (!hasWebSearch) {
             modelOptions.tools.push({ type: 'web_search' });
+            logger.info('[OpenAIClient:ResponsesAPI] Enabled web_search tool', {
+              toolCount: modelOptions.tools.length,
+              tools: modelOptions.tools.map(t => ({ type: t?.type })),
+            });
           }
           // Let the model decide when to use search
           if (modelOptions.tool_choice == null) {
             modelOptions.tool_choice = 'auto';
           }
-        } catch {}
+        } catch (err) {
+          logger.error('[OpenAIClient:ResponsesAPI] Error enabling web_search', err);
+        }
+      }
+
+      // Enable built-in OpenAI file_search when requested or when docs are attached
+      try {
+        const hasDocs =
+          Array.isArray(this.options.attachments) &&
+          this.options.attachments.some((f) => !f?.type?.startsWith('image/'));
+        const wantsFileSearch = this.modelOptions?.file_search === true ||
+                               this.modelOptions?.fileSearch === true ||
+                               this.options?.fileSearch === true;
+
+        logger.info('[OpenAIClient:ResponsesAPI] File search check', {
+          hasDocs,
+          wantsFileSearch,
+          attachmentCount: this.options.attachments?.length || 0,
+          attachmentTypes: this.options.attachments?.map(f => f?.type) || [],
+          useOpenRouter: this.useOpenRouter,
+          azure: this.azure,
+        });
+
+        if ((wantsFileSearch || hasDocs) && !this.useOpenRouter && !this.azure) {
+          // Create a separate client pointing at the v1 base (not /responses) for file/vector APIs
+          const completionsBase = extractBaseURL(this.completionsUrl);
+          const apiBase =
+            (completionsBase && completionsBase.replace(/\/chat$/, '')) ||
+            'https://api.openai.com/v1';
+          /** @type {OpenAI} */
+          const filesClient = new OpenAI({
+            fetch: createFetch({
+              directEndpoint: this.options.directEndpoint,
+              reverseProxyUrl: this.options.reverseProxyUrl,
+            }),
+            apiKey: this.apiKey,
+            baseURL: apiBase,
+          });
+
+          const vectorStoreId = await this.ensureVectorStore(filesClient);
+          await this.addFilesToVectorStore(
+            filesClient,
+            vectorStoreId,
+            this.options.attachments || [],
+          );
+          // Ensure vector store files are ready before invoking file_search
+          await this.waitForVectorStoreReady(filesClient, vectorStoreId);
+
+          modelOptions.tools = Array.isArray(modelOptions.tools) ? modelOptions.tools : [];
+          const hasFileSearch = modelOptions.tools.some((t) => t?.type === 'file_search');
+          if (!hasFileSearch) {
+            modelOptions.tools.push({
+              type: 'file_search',
+              vector_store_ids: [vectorStoreId],
+            });
+          }
+
+          if (modelOptions.tool_choice == null) {
+            modelOptions.tool_choice = 'auto';
+          }
+
+          // Optionally include results for debugging and richer output annotations
+          modelOptions.include = Array.isArray(modelOptions.include)
+            ? Array.from(new Set([...modelOptions.include, 'file_search_call.results']))
+            : ['file_search_call.results'];
+
+          if (debugLogs) {
+            const attachmentCount = Array.isArray(this.options.attachments)
+              ? this.options.attachments.length
+              : 0;
+            try {
+              logger.info('[OpenAIClient] file_search configured', {
+                vectorStoreId,
+                tool_choice: modelOptions.tool_choice,
+                include: modelOptions.include,
+                tools: modelOptions.tools?.map((t) =>
+                  t?.type === 'file_search'
+                    ? { type: t.type, vector_store_ids: t.vector_store_ids }
+                    : t,
+                ),
+                attachmentCount,
+              });
+            } catch (_) {
+              /* ignore logging serialization issues */
+            }
+          }
+        }
+      } catch (e) {
+        logger.warn('[OpenAIClient] file_search setup skipped:', e?.message || e);
       }
 
       // Responses API uses 'input' instead of 'messages'
       modelOptions.input = input;
+
+      if (debugLogs) {
+        try {
+          logger.info('[OpenAIClient] responses.create request (summary)', {
+            tool_choice: modelOptions.tool_choice,
+            tools: modelOptions.tools?.map((t) =>
+              t?.type === 'file_search'
+                ? { type: t.type, vector_store_ids: t.vector_store_ids }
+                : t,
+            ),
+            include: modelOptions.include,
+            inputCount: Array.isArray(input) ? input.length : -1,
+          });
+        } catch (_) {
+          /* ignore logging serialization issues */
+        }
+      }
 
       // Add conversation_id for stateful conversations
       if (conversationId) {
         modelOptions.conversation_id = conversationId;
       }
 
-      const baseURL = extractBaseURL(
-        this.completionsUrl.replace('/chat/completions', '/responses'),
-      );
-      logger.debug('[OpenAIClient] responseCompletion', { baseURL, modelOptions });
+      // Ensure proper Responses API endpoint
+      let baseURL = extractBaseURL(this.completionsUrl);
+      if (baseURL && baseURL.includes('/chat/completions')) {
+        baseURL = baseURL.replace('/chat/completions', '/responses');
+      } else if (baseURL && !baseURL.endsWith('/responses')) {
+        baseURL = baseURL.replace(/\/+$/, '') + '/responses';
+      }
+
+      logger.info('[OpenAIClient] responseCompletion endpoint setup', {
+        originalUrl: this.completionsUrl,
+        baseURL,
+        modelName: modelOptions.model,
+        hasTools: !!(modelOptions.tools && modelOptions.tools.length > 0),
+        toolTypes: modelOptions.tools?.map(t => t?.type) || [],
+      });
 
       const opts = {
         baseURL,
@@ -1484,8 +1802,9 @@ ${convo}
         opts.defaultHeaders = { ...opts.defaultHeaders, 'api-key': this.apiKey };
       }
 
-      if (this.isOmni === true && modelOptions.max_tokens != null) {
+      if (modelOptions.max_tokens != null) {
         modelOptions.max_completion_tokens = modelOptions.max_tokens;
+        modelOptions.max_output_tokens = modelOptions.max_tokens;
         delete modelOptions.max_tokens;
       }
       if (this.isOmni === true && modelOptions.temperature != null) {
@@ -1515,7 +1834,7 @@ ${convo}
         (modelOptions.model && /gpt-4o.*search/i.test(modelOptions.model)) ||
         modelOptions.web_search === true ||
         (Array.isArray(modelOptions.tools) &&
-          modelOptions.tools.some((t) => t?.type === 'web_search'))
+          modelOptions.tools.some((t) => t?.type === 'web_search' || t?.type === 'file_search'))
       ) {
         const searchExcludeParams = [
           'frequency_penalty',
@@ -1687,18 +2006,63 @@ ${convo}
         throw new Error('Response completion failed');
       }
 
-      const { choices } = responseCompletion;
+      // Handle Responses API output structure
+      const { output, choices } = responseCompletion;
       this.usage = responseCompletion.usage;
 
+      // Log full response structure for debugging
+      logger.debug('[OpenAIClient] Full Responses API response structure', {
+        hasOutput: !!output,
+        outputLength: Array.isArray(output) ? output.length : 0,
+        outputTypes: Array.isArray(output) ? output.map(o => o?.type) : [],
+        hasChoices: !!choices,
+        choicesLength: Array.isArray(choices) ? choices.length : 0,
+        usage: this.usage,
+      });
+
+      // Responses API uses 'output' array instead of 'choices'
+      if (Array.isArray(output) && output.length > 0) {
+        // Find the message output
+        const messageOutput = output.find(o => o?.type === 'message');
+        if (messageOutput) {
+          const textContent = messageOutput.content?.find(c => c?.type === 'output_text');
+          if (textContent?.text) {
+            logger.debug('[OpenAIClient] Found text in Responses API output', {
+              textLength: textContent.text.length,
+              preview: textContent.text.substring(0, 100),
+            });
+            return textContent.text;
+          }
+        }
+        // Log other output types for debugging
+        output.forEach(o => {
+          if (o?.type === 'file_search_call') {
+            logger.info('[OpenAIClient] File search was called', {
+              id: o.id,
+              status: o.status,
+              queries: o.queries,
+              hasResults: !!(o.search_results),
+            });
+          } else if (o?.type === 'web_search_call') {
+            logger.info('[OpenAIClient] Web search was called', {
+              id: o.id,
+              status: o.status,
+              queries: o.queries,
+            });
+          }
+        });
+      }
+
+      // Fallback to legacy choices structure if no output
       if (!Array.isArray(choices) || choices.length === 0) {
-        logger.warn('[OpenAIClient] Response completion has no choices');
+        logger.warn('[OpenAIClient] Response completion has no choices or output');
         return this.streamHandler.tokens.join('');
       }
 
       const { message, finish_reason } = choices[0] ?? {};
       this.metadata = { finish_reason };
 
-      logger.debug('[OpenAIClient] responseCompletion response', responseCompletion);
+      logger.debug('[OpenAIClient] responseCompletion response (fallback to choices)', responseCompletion);
 
       if (!message) {
         logger.warn('[OpenAIClient] Message is undefined in responseCompletion');

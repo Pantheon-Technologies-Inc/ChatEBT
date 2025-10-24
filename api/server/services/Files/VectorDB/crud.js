@@ -1,10 +1,12 @@
 const fs = require('fs');
+const path = require('path');
 const axios = require('axios');
 const FormData = require('form-data');
 const { logAxiosError } = require('@librechat/api');
 const { logger } = require('@librechat/data-schemas');
 const { FileSources } = require('librechat-data-provider');
 const { generateShortLivedToken } = require('~/server/services/AuthService');
+const pathsConfig = require('~/config/paths');
 
 /**
  * Deletes a file from the vector database. This function takes a file object, constructs the full path, and
@@ -68,8 +70,40 @@ const deleteVectors = async (req, file) => {
  */
 async function uploadVectors({ req, file, file_id, entity_id }) {
   if (!process.env.RAG_API_URL) {
-    logger.warn('[uploadVectors] RAG_API_URL not defined - skipping vector embedding. Files will be uploaded without RAG processing.');
-    return { embedded: false };
+    logger.warn(
+      '[uploadVectors] RAG_API_URL not defined - skipping vector embedding. Files will be uploaded without RAG processing.',
+    );
+
+    try {
+      const uploadsRoot = req?.app?.locals?.paths?.uploads ?? pathsConfig.uploads;
+      const userId = req?.user?.id ?? 'unknown';
+      const destinationDir = path.join(uploadsRoot, userId);
+      await fs.promises.mkdir(destinationDir, { recursive: true });
+
+      const originalExt = path.extname(file.originalname || '');
+      const tempExt = path.extname(file.path || '');
+      const extension = originalExt || tempExt;
+      const filenameWithExt = extension ? `${file_id}${extension}` : file_id;
+
+      const destinationPath = path.join(destinationDir, filenameWithExt);
+      await fs.promises.copyFile(file.path, destinationPath);
+
+      const publicPath = path.posix.join('/uploads', userId, path.basename(destinationPath));
+
+      return {
+        bytes: file.size,
+        filename: file.originalname,
+        filepath: publicPath,
+        embedded: false,
+        source: FileSources.local,
+      };
+    } catch (error) {
+      logger.error('[uploadVectors] Local fallback storage failed', {
+        file_id,
+        error: error?.message,
+      });
+      throw new Error('Unable to store file for hosted file search when RAG API is disabled.');
+    }
   }
 
   try {

@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { sleep } = require('@librechat/agents');
+const { sleep, Providers } = require('@librechat/agents');
 const { logger } = require('@librechat/data-schemas');
 const { zodToJsonSchema } = require('zod-to-json-schema');
 const { Calculator } = require('@langchain/community/tools/calculator');
@@ -513,6 +513,13 @@ async function loadAgentTools({ req, res, agent, tool_resources, openAIApiKey })
     );
   }
   const checkCapability = (capability) => {
+    if (
+      capability === AgentCapabilities.file_search &&
+      !process.env.RAG_API_URL &&
+      agent?.provider === Providers.OPENAI
+    ) {
+      return true;
+    }
     const enabled = enabledCapabilities.has(capability);
     if (!enabled) {
       logger.warn(

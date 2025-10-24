@@ -221,39 +221,6 @@ class AgentClient extends BaseClient {
       VisionModes.agents,
     );
 
-    // FIX: Handle PDF files that encodeAndFormat skips (no height property)
-    const fs = require('fs').promises;
-    for (const file of files) {
-      // Check if this file was already added as an image
-      const hasImageUrl = image_urls.some(
-        (img) =>
-          img.image_url?.url?.includes(file.file_id) ||
-          img.image_url?.url?.includes(file.filename),
-      );
-
-      // If not in image_urls and is a PDF, convert to base64
-      if (!hasImageUrl && file.filepath && file.type?.includes('pdf')) {
-        try {
-          const fileBuffer = await fs.readFile(file.filepath);
-          const base64Data = fileBuffer.toString('base64');
-
-          // Add PDF as image_url (vision models can read PDFs this way)
-          image_urls.push({
-            type: ContentTypes.IMAGE_URL,
-            image_url: {
-              url: `data:${file.type};base64,${base64Data}`,
-            },
-          });
-
-          logger.info(
-            `[AgentClient] Added PDF ${file.filename} for vision API (${(base64Data.length / 1024).toFixed(2)}KB)`,
-          );
-        } catch (error) {
-          logger.error(`[AgentClient] Error reading PDF ${file.filename}:`, error);
-        }
-      }
-    }
-
     message.image_urls = image_urls.length ? image_urls : undefined;
     if (text && text.length) {
       message.ocr = text;
@@ -768,6 +735,25 @@ class AgentClient extends BaseClient {
     let run;
     /** @type {Promise<(TAttachment | null)[] | undefined>} */
     let memoryPromise;
+
+    try {
+      const provider = this.options?.agent?.provider;
+      const tools =
+        Array.isArray(this.options?.agent?.tools) && this.options.agent.tools.length
+          ? this.options.agent.tools.map((t) => (t && t.name) || t).filter(Boolean)
+          : [];
+      const attachmentsCount = Array.isArray(this.options?.attachments)
+        ? this.options.attachments.length
+        : 0;
+      logger.info('[Agents:chat] start', {
+        provider,
+        ragEnabled: !!process.env.RAG_API_URL,
+        tools,
+        attachmentsCount,
+      });
+    } catch (_) {
+      /* ignore logging issues */
+    }
     try {
       if (!abortController) {
         abortController = new AbortController();
@@ -791,6 +777,11 @@ class AgentClient extends BaseClient {
       };
 
       const toolSet = new Set((this.options.agent.tools ?? []).map((tool) => tool && tool.name));
+      try {
+        logger.info('[Agents:chat] toolSet', { size: toolSet.size, tools: Array.from(toolSet) });
+      } catch (_) {
+        /* ignore */
+      }
       let { messages: initialMessages, indexTokenCountMap } = formatAgentMessages(
         payload,
         this.indexTokenCountMap,

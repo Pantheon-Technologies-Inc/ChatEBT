@@ -576,22 +576,75 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
   const { handleFileUpload } = getStrategyFunctions(source);
   const { file_id, temp_file_id } = metadata;
 
-  const {
-    bytes,
-    filename,
-    filepath: _filepath,
-    embedded,
-    height,
-    width,
-  } = await handleFileUpload({
-    req,
-    file,
-    file_id,
-    entity_id,
-    basePath,
-  });
+  const uploadResult =
+    (await handleFileUpload({
+      req,
+      file,
+      file_id,
+      entity_id,
+      basePath,
+    })) || {};
 
+  let { bytes, filename, filepath: _filepath, embedded, height, width, source: uploadSource } =
+    uploadResult;
   let filepath = _filepath;
+  let finalSource = uploadSource ?? source;
+
+  if (!filepath && !process.env.RAG_API_URL) {
+    try {
+      let fallbackSource = req.app.locals.fileStrategy;
+      if (
+        fallbackSource == null ||
+        fallbackSource === FileSources.vectordb ||
+        fallbackSource === FileSources.openai
+      ) {
+        fallbackSource = FileSources.local;
+      }
+
+      const fallbackStrategy = getStrategyFunctions(fallbackSource);
+      if (
+        fallbackStrategy?.handleFileUpload &&
+        fallbackStrategy.handleFileUpload !== handleFileUpload
+      ) {
+        const fallbackResult = await fallbackStrategy.handleFileUpload({
+          req,
+          file,
+          file_id,
+          entity_id,
+          basePath,
+        });
+
+        if (fallbackResult) {
+          bytes = fallbackResult.bytes ?? bytes;
+          filepath = fallbackResult.filepath ?? filepath;
+          filename = fallbackResult.filename ?? filename;
+          height = fallbackResult.height ?? height;
+          width = fallbackResult.width ?? width;
+          embedded = false;
+          finalSource = fallbackSource;
+          logger.info(
+            '[Files] Stored agent attachment using fallback strategy for hosted file_search',
+            {
+              file_id,
+              strategy: fallbackSource,
+              hasFilepath: !!filepath,
+            },
+          );
+        }
+      }
+    } catch (err) {
+      logger.warn('[Files] Fallback storage for file_search attachment failed', {
+        file_id,
+        error: err?.message,
+      });
+    }
+  }
+
+  if (!filepath) {
+    throw new Error(
+      'Unable to determine a storage location for the uploaded file. File search attachments require accessible storage when hosted RAG is disabled.',
+    );
+  }
 
   if (!messageAttachment && tool_resource) {
     await addAgentResourceFile({
@@ -624,7 +677,7 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
     metadata: fileInfoMetadata,
     type: file.mimetype,
     embedded,
-    source,
+    source: finalSource,
     height,
     width,
   });
