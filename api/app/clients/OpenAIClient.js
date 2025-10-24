@@ -1180,6 +1180,14 @@ ${convo}
       };
     }
 
+    // Priority 1.5: If file has a direct file_id property, use that
+    if (file.file_id) {
+      return {
+        type: 'input_file',
+        file_id: file.file_id,
+      };
+    }
+
     // Priority 2: If file has a publicly accessible URL, use that
     if (
       file.filepath &&
@@ -1240,6 +1248,25 @@ ${convo}
     const input = [];
     let instructions = null;
 
+    // Identify the last user message index to attach current-turn files when message ids are missing
+    const lastUserIndex = (() => {
+      let idx = -1;
+      for (let i = 0; i < messages.length; i++) {
+        if (messages[i]?.role === 'user') {
+          idx = i;
+        }
+      }
+      return idx;
+    })();
+
+    // Fallback attachments from function arg or this.options.attachments
+    const fallbackAttachments =
+      (Array.isArray(files) && files.length
+        ? files
+        : Array.isArray(this.options.attachments)
+          ? this.options.attachments
+          : []) || [];
+
     for (let i = 0; i < messages.length; i++) {
       const message = messages[i];
 
@@ -1263,26 +1290,48 @@ ${convo}
           });
         }
 
-        // Check if this message has files in the message_file_map
-        const messageFiles = this.message_file_map?.[message.messageId] || [];
+        // Gather files: prefer message_file_map; fall back to current-turn attachments on last user msg
+        let messageFiles = this.message_file_map?.[message.messageId] || [];
+        if (
+          (!messageFiles || messageFiles.length === 0) &&
+          i === lastUserIndex &&
+          fallbackAttachments.length > 0
+        ) {
+          messageFiles = fallbackAttachments;
+        }
+
+        // De-dup keys for files/images
+        const seen = new Set();
 
         // Handle files attached to this message
         for (const file of messageFiles) {
           try {
             // For images with base64 data already embedded
-            if (file.type?.startsWith('image/') && file.embedded) {
+            if (file?.type?.startsWith('image/') && file.embedded) {
               const url = file.filepath || file.preview;
               if (url && url.startsWith('data:')) {
-                contentParts.push({
-                  type: 'input_image',
-                  image_url: url,
-                });
+                const key = `img:${url}`;
+                if (!seen.has(key)) {
+                  contentParts.push({
+                    type: 'input_image',
+                    image_url: url,
+                  });
+                  seen.add(key);
+                }
               }
             }
-            // For documents and other files, use file_id or file_url
+            // For documents and other files, use file_id or file_url or base64
             else if (file.filepath || file.file_id || file.metadata?.fileIdentifier) {
               const filePart = await this.convertFileToContentPart(file);
-              contentParts.push(filePart);
+              const key =
+                (filePart.file_id && `file:${filePart.file_id}`) ||
+                (filePart.file_url && `url:${filePart.file_url}`) ||
+                (filePart.filename && `name:${filePart.filename}`) ||
+                JSON.stringify(filePart);
+              if (!seen.has(key)) {
+                contentParts.push(filePart);
+                seen.add(key);
+              }
             }
           } catch (error) {
             logger.error('[OpenAIClient] Error converting file for Responses API:', error);
@@ -1295,15 +1344,17 @@ ${convo}
           for (const imageUrl of message.image_urls) {
             if (imageUrl.image_url?.url) {
               const url = imageUrl.image_url.url;
-              // Check if we haven't already added this from message_file_map
+              const key = `img:${url}`;
+              // Check if we haven't already added this
               const alreadyAdded = contentParts.some(
                 (part) => part.type === 'input_image' && part.image_url === url,
               );
-              if (!alreadyAdded) {
+              if (!alreadyAdded && !seen.has(key)) {
                 contentParts.push({
                   type: 'input_image',
                   image_url: url,
                 });
+                seen.add(key);
               }
             }
           }
