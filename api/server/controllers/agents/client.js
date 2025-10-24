@@ -59,7 +59,6 @@ const omitTitleOptions = new Set([
   'thinkingConfig',
   'thinkingBudget',
   'includeThoughts',
-  'maxOutputTokens',
   'additionalModelRequestFields',
 ]);
 
@@ -1086,7 +1085,9 @@ class AgentClient extends BaseClient {
     }
     const { handleLLMEnd, collected: collectedMetadata } = createMetadataAggregator();
     const { req, res, agent } = this.options;
-    let endpoint = agent.endpoint;
+    const defaultEndpoint =
+      agent.endpoint ?? this.options.endpoint ?? agent.provider ?? EModelEndpoint.openAI;
+    let endpoint = defaultEndpoint;
 
     /** @type {import('@librechat/agents').ClientOptions} */
     let clientOptions = {
@@ -1097,12 +1098,13 @@ class AgentClient extends BaseClient {
     let titleProviderConfig = await getProviderConfig(endpoint);
 
     /** @type {TEndpoint | undefined} */
-    const endpointConfig =
+    let endpointConfig =
       req.app.locals.all ?? req.app.locals[endpoint] ?? titleProviderConfig.customEndpointConfig;
     if (!endpointConfig) {
       logger.warn(
-        '[api/server/controllers/agents/client.js #titleConvo] Error getting endpoint config',
+        '[api/server/controllers/agents/client.js #titleConvo] Missing endpoint config, falling back to default `all` config where available',
       );
+      endpointConfig = req.app.locals.all;
     }
 
     if (endpointConfig?.titleEndpoint && endpointConfig.titleEndpoint !== endpoint) {
@@ -1126,6 +1128,31 @@ class AgentClient extends BaseClient {
       endpointConfig.titleModel !== Constants.CURRENT_MODEL
     ) {
       clientOptions.model = endpointConfig.titleModel;
+    }
+
+    const openAITitleFallback = 'gpt-4o-mini';
+    const assumedProvider = endpoint === EModelEndpoint.openAI ? Providers.OPENAI : agent.provider;
+    const shouldForceOpenAITitleModel =
+      (endpoint === EModelEndpoint.openAI || assumedProvider === Providers.OPENAI)
+        ? true
+        : [Providers.OPENROUTER, Providers.XAI, Providers.DEEPSEEK].includes(assumedProvider);
+    const isProblematicModel = /\bgpt-(4\.1|5)/i.test(clientOptions.model ?? '');
+
+    if (
+      shouldForceOpenAITitleModel &&
+      isProblematicModel &&
+      (!endpointConfig?.titleModel || endpointConfig.titleModel === Constants.CURRENT_MODEL)
+    ) {
+      logger.debug(
+        '[api/server/controllers/agents/client.js #titleConvo] Overriding title model for compatibility',
+        {
+          endpoint,
+          assumedProvider,
+          originalModel: clientOptions.model,
+          fallbackModel: openAITitleFallback,
+        },
+      );
+      clientOptions.model = openAITitleFallback;
     }
 
     const options = await titleProviderConfig.getOptions({
@@ -1157,11 +1184,108 @@ class AgentClient extends BaseClient {
       clientOptions.configuration = options.configOptions;
     }
 
-    // Ensure maxTokens is set for non-o1 models
-    if (!/\b(o\d)\b/i.test(clientOptions.model) && !clientOptions.maxTokens) {
-      clientOptions.maxTokens = 75;
-    } else if (/\b(o\d)\b/i.test(clientOptions.model) && clientOptions.maxTokens != null) {
+    const titleMaxTokens = 75;
+    const modelName =
+      clientOptions.model ??
+      agent.model ??
+      agent.model_parameters?.model ??
+      '';
+    const isReasoningModel = /\b(o\d)\b/i.test(modelName);
+    const usesCompletionTokenParam =
+      isReasoningModel ||
+      provider === Providers.OPENAI ||
+      provider === Providers.AZURE ||
+      provider === Providers.OPENROUTER ||
+      provider === Providers.XAI ||
+      provider === Providers.DEEPSEEK;
+    const usesOutputTokenParam =
+      provider === Providers.GOOGLE ||
+      provider === Providers.VERTEXAI ||
+      provider === Providers.ANTHROPIC ||
+      provider === Providers.BEDROCK ||
+      provider === Providers.BEDROCK_LEGACY;
+    const completionTokenModelPattern = /\bgpt-(4\.1|5|4o)(?:[\w-]*)?/i;
+    const requiresCompletionTokensOnly =
+      (provider === Providers.OPENAI || provider === Providers.AZURE) &&
+      !isReasoningModel &&
+      completionTokenModelPattern.test(modelName);
+
+    if (!clientOptions.modelKwargs || typeof clientOptions.modelKwargs !== 'object') {
+      clientOptions.modelKwargs = {};
+    }
+
+    delete clientOptions.modelKwargs.max_tokens;
+    delete clientOptions.modelKwargs.maxTokens;
+    delete clientOptions.modelKwargs.max_completion_tokens;
+    delete clientOptions.modelKwargs.maxCompletionTokens;
+    delete clientOptions.modelKwargs.max_output_tokens;
+    delete clientOptions.modelKwargs.maxOutputTokens;
+
+    const normalizeTokenLimit = () => {
+      const value =
+        clientOptions.maxOutputTokens ??
+        clientOptions.max_output_tokens ??
+        clientOptions.maxCompletionTokens ??
+        clientOptions.max_completion_tokens ??
+        clientOptions.maxTokens ??
+        clientOptions.max_tokens;
+      const kw = clientOptions.modelKwargs;
+      if (typeof kw === 'object') {
+        const fallback =
+          kw.max_completion_tokens ??
+          kw.maxCompletionTokens ??
+          kw.max_output_tokens ??
+          kw.maxOutputTokens;
+        if (value == null && typeof fallback === 'number') {
+          return fallback;
+        }
+      }
+      return typeof value === 'number' && value > 0 ? value : titleMaxTokens;
+    };
+
+    if (requiresCompletionTokensOnly) {
+      const normalized = normalizeTokenLimit();
+      clientOptions.modelKwargs.max_completion_tokens = normalized;
       delete clientOptions.maxTokens;
+      delete clientOptions.max_tokens;
+      delete clientOptions.maxCompletionTokens;
+      delete clientOptions.max_completion_tokens;
+      delete clientOptions.maxOutputTokens;
+      delete clientOptions.max_output_tokens;
+    } else if (usesOutputTokenParam) {
+      const normalized = normalizeTokenLimit();
+      clientOptions.maxOutputTokens = normalized;
+      clientOptions.max_output_tokens = normalized;
+      clientOptions.modelKwargs.max_output_tokens = normalized;
+      delete clientOptions.maxTokens;
+      delete clientOptions.max_tokens;
+      delete clientOptions.maxCompletionTokens;
+      delete clientOptions.max_completion_tokens;
+    } else if (usesCompletionTokenParam) {
+      const normalized = normalizeTokenLimit();
+      clientOptions.maxCompletionTokens = normalized;
+      clientOptions.max_completion_tokens = normalized;
+      clientOptions.modelKwargs.max_completion_tokens = normalized;
+      delete clientOptions.maxTokens;
+      delete clientOptions.max_tokens;
+      delete clientOptions.maxOutputTokens;
+      delete clientOptions.max_output_tokens;
+    } else {
+      const maxTokens =
+        clientOptions.maxTokens ??
+        clientOptions.max_tokens ??
+        clientOptions.maxCompletionTokens ??
+        clientOptions.max_completion_tokens ??
+        clientOptions.maxOutputTokens ??
+        clientOptions.max_output_tokens;
+      const normalized = typeof maxTokens === 'number' ? maxTokens : titleMaxTokens;
+      clientOptions.maxTokens = normalized;
+      clientOptions.max_tokens = normalized;
+      clientOptions.modelKwargs.max_tokens = normalized;
+      delete clientOptions.maxCompletionTokens;
+      delete clientOptions.max_completion_tokens;
+      delete clientOptions.maxOutputTokens;
+      delete clientOptions.max_output_tokens;
     }
 
     clientOptions = Object.assign(
@@ -1177,6 +1301,33 @@ class AgentClient extends BaseClient {
     ) {
       clientOptions.json = true;
     }
+
+    const createFallbackTitle = () => {
+      const primary =
+        (typeof text === 'string' && text.trim().length > 0 ? text : null) ??
+        (typeof responseText === 'string' && responseText.trim().length > 0 ? responseText : null);
+      if (!primary) {
+        return 'New Chat';
+      }
+
+      const normalized = primary.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!normalized) {
+        return 'New Chat';
+      }
+
+      const words = normalized.split(' ').filter(Boolean).slice(0, 6);
+      if (words.length === 0) {
+        return 'New Chat';
+      }
+
+      const titleCase = words
+        .map((word) => (word.length > 1 ? word.charAt(0).toUpperCase() + word.slice(1) : word))
+        .join(' ');
+
+      return titleCase || 'New Chat';
+    };
+
+    let generatedTitle = '';
 
     try {
       // Format the conversation context for better title generation
@@ -1201,6 +1352,20 @@ class AgentClient extends BaseClient {
           ],
         },
       });
+
+      generatedTitle =
+        typeof titleResult?.title === 'string' ? titleResult.title.trim() : '';
+
+      if (!generatedTitle) {
+        logger.warn(
+          '[api/server/controllers/agents/client.js #titleConvo] Empty title result',
+          {
+            provider,
+            model: clientOptions.model,
+            titleResult,
+          },
+        );
+      }
 
       const collectedUsage = collectedMetadata.map((item) => {
         let input_tokens, output_tokens;
@@ -1231,12 +1396,31 @@ class AgentClient extends BaseClient {
           err,
         );
       });
-
-      return titleResult.title;
     } catch (err) {
-      logger.error('[api/server/controllers/agents/client.js #titleConvo] Error', err);
-      return;
+      logger.error(
+        '[api/server/controllers/agents/client.js #titleConvo] Error generating title',
+        {
+          provider,
+          model: clientOptions?.model,
+          message: err?.message,
+          stack: err?.stack,
+        },
+      );
     }
+
+    if (!generatedTitle) {
+      generatedTitle = createFallbackTitle();
+      logger.warn(
+        '[api/server/controllers/agents/client.js #titleConvo] Using fallback title generation',
+        {
+          provider,
+          model: clientOptions?.model,
+          fallbackTitle: generatedTitle,
+        },
+      );
+    }
+
+    return generatedTitle || 'New Chat';
   }
 
   /**

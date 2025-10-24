@@ -34,7 +34,6 @@ const AgentController = async (req, res, next, initializeClient, addTitle) => {
   // Initialize as an array
   let cleanupHandlers = [];
 
-  const newConvo = !conversationId;
   const userId = req.user.id;
 
   // Create handler to avoid capturing the entire parent scope
@@ -53,7 +52,12 @@ const AgentController = async (req, res, next, initializeClient, addTitle) => {
         sender = data[key];
       } else if (key === 'abortKey') {
         abortKey = data[key];
-      } else if (!conversationId && key === 'conversationId') {
+      } else if (
+        key === 'conversationId' &&
+        (!conversationId ||
+          conversationId === Constants.NEW_CONVO ||
+          conversationId === Constants.PENDING_CONVO)
+      ) {
         conversationId = data[key];
       }
     }
@@ -242,7 +246,16 @@ const AgentController = async (req, res, next, initializeClient, addTitle) => {
     }
 
     // Add title if needed - extract minimal data
-    if (addTitle && parentMessageId === Constants.NO_PARENT && newConvo) {
+    const noParent =
+      parentMessageId == null || parentMessageId === Constants.NO_PARENT;
+    const shouldGenerateTitle =
+      addTitle &&
+      noParent &&
+      !isRegenerate &&
+      isContinued !== true &&
+      editedContent == null;
+
+    if (shouldGenerateTitle) {
       addTitle(req, {
         text,
         response: { ...response },
