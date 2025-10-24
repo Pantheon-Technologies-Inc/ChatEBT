@@ -228,7 +228,7 @@ describe('OpenAIClient', () => {
 
     it('should set isChatCompletion based on useOpenRouter, reverseProxyUrl, or model', () => {
       client.setOptions({ reverseProxyUrl: null });
-      // true by default since default model will be gpt-4o-mini
+      // true by default since default model will be gpt-5
       expect(client.isChatCompletion).toBe(true);
       client.isChatCompletion = undefined;
 
@@ -237,7 +237,7 @@ describe('OpenAIClient', () => {
       expect(client.isChatCompletion).toBe(false);
       client.isChatCompletion = undefined;
 
-      client.setOptions({ modelOptions: { model: 'gpt-4o-mini' }, reverseProxyUrl: null });
+      client.setOptions({ modelOptions: { model: 'gpt-5' }, reverseProxyUrl: null });
       expect(client.isChatCompletion).toBe(true);
     });
 

@@ -248,7 +248,7 @@ async function processRequiredActions(client, requiredActions) {
 
   const { loadedTools } = await loadTools({
     user: client.req.user.id,
-    model: client.req.body.model ?? 'gpt-4o-mini',
+    model: client.req.body.model ?? 'gpt-5',
     tools,
     functions: true,
     endpoint: client.req.body.endpoint,

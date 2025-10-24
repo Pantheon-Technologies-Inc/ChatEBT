@@ -1994,6 +1994,22 @@ html {
   will-change: transform;
 }
 
+@keyframes blinkDotFade {
+  0% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.25;
+  }
+}
+
+.blink-dot {
+  animation: blinkDotFade 1.6s ease-in-out infinite;
+}
+
 .shadow-stroke {
   position: relative;
 }

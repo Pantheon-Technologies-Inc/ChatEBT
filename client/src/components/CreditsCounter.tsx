@@ -12,6 +12,24 @@ export const triggerCreditsRefresh = () => {
   window.dispatchEvent(event);
 };
 
+const getCachedCreditsForUser = (userId: string | number | undefined | null) => {
+  if (typeof window === 'undefined' || !userId) {
+    return undefined;
+  }
+
+  try {
+    const cached = localStorage.getItem(`credits:${userId}`);
+    if (cached === null) {
+      return undefined;
+    }
+    const parsed = Number(cached);
+    return Number.isNaN(parsed) ? undefined : parsed;
+  } catch (storageError) {
+    console.warn('Unable to access cached credits value', storageError);
+    return undefined;
+  }
+};
+
 interface FreeCounterProps {
   generationsUsed?: number;
   isPro?: boolean;
@@ -19,13 +37,40 @@ interface FreeCounterProps {
 
 const CreditsCounter = ({}: FreeCounterProps) => {
   const { user, isAuthenticated, token } = useAuthContext();
-  const [credits, setCredits] = useState<number>(0);
-  const [isLoading, setIsLoading] = useState(true);
+  const [credits, setCredits] = useState<number>(() => {
+    const cached = getCachedCreditsForUser(user?.id);
+    return cached ?? 0;
+  });
+  const [isLoading, setIsLoading] = useState(() => getCachedCreditsForUser(user?.id) === undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [authError, setAuthError] = useState<boolean>(false);
   const [lastAuthErrorTime, setLastAuthErrorTime] = useState<number>(0);
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [isInitialLoad, setIsInitialLoad] = useState(() => getCachedCreditsForUser(user?.id) === undefined);
+  const [hasCachedCredits, setHasCachedCredits] = useState(() => getCachedCreditsForUser(user?.id) !== undefined);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setHasCachedCredits(false);
+      setCredits(0);
+      setIsLoading(false);
+      setIsInitialLoad(false);
+      return;
+    }
+
+    const cached = getCachedCreditsForUser(user.id);
+
+    if (cached !== undefined) {
+      setCredits(cached);
+      setIsLoading(false);
+      setIsInitialLoad(false);
+      setHasCachedCredits(true);
+    } else {
+      setHasCachedCredits(false);
+      setIsLoading(true);
+      setIsInitialLoad(true);
+    }
+  }, [user?.id]);
 
   // Extract fetch credits into a reusable function
   const fetchCredits = useCallback(async (showLoading = false) => {
@@ -96,7 +141,16 @@ const CreditsCounter = ({}: FreeCounterProps) => {
       console.log('ARES API Response:', data); // Debug log
 
       if (data.credits !== undefined) {
-        setCredits(data.credits || 0);
+        const nextCredits = data.credits || 0;
+        setCredits((prev) => (prev === nextCredits ? prev : nextCredits));
+        if (user?.id) {
+          try {
+            localStorage.setItem(`credits:${user.id}`, String(nextCredits));
+          } catch (storageError) {
+            console.warn('Unable to cache credits value', storageError);
+          }
+        }
+        setHasCachedCredits(true);
         setAuthError(false); // Reset auth error on successful fetch
         if (isInitialLoad) {
           setIsInitialLoad(false);
@@ -133,7 +187,7 @@ const CreditsCounter = ({}: FreeCounterProps) => {
     if (isAuthenticated && user && token && !authError) {
       // Add a small delay to prevent race conditions on component mount
       timer = setTimeout(() => {
-        fetchCredits(true); // Show loading on initial fetch only
+        fetchCredits(!hasCachedCredits); // Only show loading if we have nothing cached
       }, 1000);
     } else if (isAuthenticated === false) {
       setIsLoading(false);
@@ -155,7 +209,7 @@ const CreditsCounter = ({}: FreeCounterProps) => {
         clearTimeout(timer);
       }
     };
-  }, [user?.id, isAuthenticated, token, authError, fetchCredits]);
+  }, [user?.id, isAuthenticated, token, authError, fetchCredits, hasCachedCredits]);
 
   const redirectToCustomerPortal = async () => {
     setLoading(true);

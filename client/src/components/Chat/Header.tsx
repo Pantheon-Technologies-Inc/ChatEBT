@@ -12,6 +12,7 @@ import { TemporaryChat } from './TemporaryChat';
 import AddMultiConvo from './AddMultiConvo';
 import { useHasAccess } from '~/hooks';
 import CreditsCounter from '~/components/CreditsCounter';
+import PendingResponseIndicator from './PendingResponseIndicator';
 
 const defaultInterface = getConfigDefaults().interface;
 
@@ -72,6 +73,7 @@ export default function Header() {
         </div>
         {!isSmallScreen && (
           <div className="flex items-center gap-2">
+            <PendingResponseIndicator />
             <CreditsCounter />
             <ExportAndShareMenu
               isSharedButtonEnabled={startupConfig?.sharedLinksEnabled ?? false}
@@ -81,6 +83,7 @@ export default function Header() {
         )}
         {isSmallScreen && (
           <div className="flex items-center gap-2">
+            <PendingResponseIndicator />
             <CreditsCounter />
           </div>
         )}

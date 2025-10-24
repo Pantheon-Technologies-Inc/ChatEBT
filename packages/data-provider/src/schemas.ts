@@ -193,7 +193,7 @@ export const isImageVisionTool = (tool: FunctionTool | FunctionToolCall) =>
 
 export const openAISettings = {
   model: {
-    default: 'gpt-4o-mini' as const,
+    default: 'gpt-5' as const,
   },
   temperature: {
     min: 0 as const,
@@ -467,7 +467,7 @@ export enum EAgent {
 
 export const agentOptionSettings = {
   model: {
-    default: 'gpt-4o-mini',
+    default: 'gpt-5',
   },
   temperature: {
     min: 0,
