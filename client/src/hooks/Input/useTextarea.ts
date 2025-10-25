@@ -27,11 +27,13 @@ export default function useTextarea({
   submitButtonRef,
   setIsScrollable,
   disabled = false,
+  customPlaceholder,
 }: {
   textAreaRef: React.RefObject<HTMLTextAreaElement>;
   submitButtonRef: React.RefObject<HTMLButtonElement>;
   setIsScrollable: React.Dispatch<React.SetStateAction<boolean>>;
   disabled?: boolean;
+  customPlaceholder?: string;
 }) {
   const localize = useLocalize();
   const getSender = useGetSender();
@@ -71,6 +73,14 @@ export default function useTextarea({
   }, [activePrompt, setActivePrompt, textAreaRef]);
 
   useEffect(() => {
+    if (customPlaceholder != null) {
+      if (textAreaRef.current?.getAttribute('placeholder') !== customPlaceholder) {
+        textAreaRef.current?.setAttribute('placeholder', customPlaceholder);
+        forceResize(textAreaRef.current);
+      }
+      return;
+    }
+
     const currentValue = textAreaRef.current?.value ?? '';
     if (currentValue) {
       return;
@@ -138,6 +148,7 @@ export default function useTextarea({
     conversation,
     latestMessage,
     isNotAppendable,
+    customPlaceholder,
   ]);
 
   const handleKeyDown = useCallback(

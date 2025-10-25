@@ -137,6 +137,15 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
     setShowPlusPopover,
     setShowMentionPopover,
   });
+  const isMoreThanThreeRows = visualRowCount > 3;
+  const isNewConversation = useMemo(
+    () =>
+      (conversation?.messages?.length ?? 0) === 0 &&
+      (conversationId == null || conversationId === Constants.NEW_CONVO),
+    [conversation?.messages?.length, conversationId],
+  );
+  const showLandingInput = isNewConversation;
+  const shouldExtendLandingInput = showLandingInput && visualRowCount > 1;
   const {
     isNotAppendable,
     handlePaste,
@@ -148,6 +157,7 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
     submitButtonRef,
     setIsScrollable,
     disabled: disableInputs,
+    customPlaceholder: showLandingInput ? 'Ask anything' : undefined,
   });
 
   useQueryParams({ textAreaRef });
@@ -164,11 +174,37 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
   const textValue = useWatch({ control: methods.control, name: 'text' });
 
   useEffect(() => {
-    if (textAreaRef.current) {
-      const style = window.getComputedStyle(textAreaRef.current);
-      const lineHeight = parseFloat(style.lineHeight);
-      setVisualRowCount(Math.floor(textAreaRef.current.scrollHeight / lineHeight));
+    const textarea = textAreaRef.current;
+    if (!textarea) {
+      return;
     }
+
+    const value = textarea.value ?? '';
+    if (value.trim().length === 0) {
+      setVisualRowCount(1);
+      return;
+    }
+
+    const style = window.getComputedStyle(textarea);
+    const parsedLineHeight = parseFloat(style.lineHeight);
+    const fontSize = parseFloat(style.fontSize);
+    const lineHeight =
+      Number.isFinite(parsedLineHeight) && parsedLineHeight > 0
+        ? parsedLineHeight
+        : Number.isFinite(fontSize) && fontSize > 0
+          ? fontSize * 1.2
+          : textarea.clientHeight || 1;
+    const paddingTop = parseFloat(style.paddingTop) || 0;
+    const paddingBottom = parseFloat(style.paddingBottom) || 0;
+    const contentHeight = textarea.scrollHeight - paddingTop - paddingBottom;
+    const singleRowHeight = lineHeight;
+
+    if (contentHeight <= singleRowHeight + 1) {
+      setVisualRowCount(1);
+      return;
+    }
+
+    setVisualRowCount(Math.max(1, Math.ceil(contentHeight / lineHeight)));
   }, [textValue]);
 
   useEffect(() => {
@@ -189,16 +225,6 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
     setIsEditingBadges(false);
     setBackupBadges([]);
   }, [backupBadges, setBadges, setIsEditingBadges]);
-
-  const isMoreThanThreeRows = visualRowCount > 3;
-  const isNewConversation = useMemo(
-    () =>
-      (conversation?.messages?.length ?? 0) === 0 &&
-      (conversationId == null || conversationId === Constants.NEW_CONVO),
-    [conversation?.messages?.length, conversationId],
-  );
-  const showLandingInput = isNewConversation;
-  const shouldExtendLandingInput = showLandingInput && visualRowCount > 1;
 
   const textareaClasses = useMemo(
     () =>
