@@ -10,6 +10,16 @@ const { findToken, createToken, updateToken, deleteTokens } = require('~/models'
 // In-memory cache to prevent race conditions during token refresh
 const refreshPromises = new Map();
 
+const toMs = (value, fallback) => {
+  if (value == null) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const DEFAULT_ARES_TIMEOUT_MS = toMs(process.env.ARES_API_TIMEOUT_MS, 6000);
+
 /**
  * Perform direct ARES token refresh without using the potentially broken refreshAccessToken function
  * @param {string} userId - The user's MongoDB ID
@@ -420,6 +430,14 @@ async function callAresAPI(userId, endpoint, options = {}) {
     throw new Error('Endpoint is required for ARES API calls');
   }
 
+  const {
+    timeoutMs: providedTimeout,
+    headers: optionHeaders = {},
+    signal: providedSignal,
+    ...fetchOptions
+  } = options;
+
+  const timeoutMs = toMs(providedTimeout, DEFAULT_ARES_TIMEOUT_MS);
   let attempt = 0;
   const maxAttempts = 2;
 
@@ -427,18 +445,50 @@ async function callAresAPI(userId, endpoint, options = {}) {
     try {
       const accessToken = await getValidAresToken(userId);
       const url = `https://oauth.joinares.com/v1/${endpoint.replace(/^\//, '')}`;
+      const controller = timeoutMs > 0 ? new AbortController() : null;
+      let signalToUse = providedSignal ?? undefined;
+      let timeoutHandle;
 
-      const response = await fetch(url, {
+      if (controller) {
+        timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+        if (typeof timeoutHandle.unref === 'function') {
+          timeoutHandle.unref();
+        }
+        if (
+          providedSignal &&
+          typeof AbortSignal !== 'undefined' &&
+          typeof AbortSignal.any === 'function'
+        ) {
+          signalToUse = AbortSignal.any([providedSignal, controller.signal]);
+        } else if (!providedSignal) {
+          signalToUse = controller.signal;
+        }
+      }
+
+      const fetchConfig = {
         method: 'GET',
-        ...options,
+        ...fetchOptions,
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Accept': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
           'Content-Type': 'application/json',
           'User-Agent': 'ChatEBT/1.0',
-          ...options.headers,
+          ...optionHeaders,
         },
-      });
+      };
+
+      if (signalToUse) {
+        fetchConfig.signal = signalToUse;
+      }
+
+      let response;
+      try {
+        response = await fetch(url, fetchConfig);
+      } finally {
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+        }
+      }
 
       // Handle 401 - token might be invalid, try refresh once
       if (response.status === 401 && attempt === 0) {
@@ -485,6 +535,9 @@ async function callAresAPI(userId, endpoint, options = {}) {
       return data;
 
     } catch (error) {
+      if (error.name === 'AbortError' && !error.code) {
+        error.code = 'ARES_TIMEOUT';
+      }
       if (error.code === 'ARES_AUTH_REQUIRED' || attempt >= maxAttempts - 1) {
         throw error;
       }

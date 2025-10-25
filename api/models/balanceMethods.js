@@ -6,6 +6,46 @@ const { getMultiplier } = require('./tx');
 const { Balance } = require('~/db/models');
 const { callAresAPI } = require('~/utils/aresClient');
 
+const toMs = (value, fallback) => {
+  if (value == null) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const CACHE_TTL = toMs(process.env.ARES_BALANCE_CACHE_MS, 10_000);
+const PENDING_TTL = toMs(process.env.ARES_BALANCE_PENDING_MS, CACHE_TTL);
+
+/** @type {Map<string, { credits: number, timestamp: number, pending: number }>} */
+const balanceCache = new Map();
+
+const releasePending = (userId, pending) => {
+  const entry = balanceCache.get(userId);
+  if (!entry) {
+    return;
+  }
+
+  entry.pending = Math.max(0, entry.pending - pending);
+
+  if (entry.pending === 0 && Date.now() - entry.timestamp > CACHE_TTL) {
+    balanceCache.delete(userId);
+    return;
+  }
+
+  balanceCache.set(userId, entry);
+};
+
+const cachePending = (userId, credits) => {
+  if (PENDING_TTL <= 0 || credits <= 0) {
+    return;
+  }
+  const timeout = setTimeout(() => releasePending(userId, credits), PENDING_TTL);
+  if (typeof timeout.unref === 'function') {
+    timeout.unref();
+  }
+};
+
 function isInvalidDate(date) {
   return isNaN(date);
 }
@@ -130,8 +170,10 @@ const addIntervalToDate = (date, value, unit) => {
  * @throws {Error} Throws an error if there's an issue with the balance check.
  */
 const checkAresBalance = async ({ req, res, txData }) => {
+  const userId = txData.user;
+  let aresCreditsRequired = 0;
+
   try {
-    const userId = txData.user;
 
     logger.info('[checkAresBalance] Starting balance check', {
       userId,
@@ -156,26 +198,54 @@ const checkAresBalance = async ({ req, res, txData }) => {
     const exactCredits = usdCost / 0.002; // Convert USD to ARES credits (1 credit = $0.002)
 
     // Always round up for simpler billing (except for very tiny amounts)
-    let aresCreditsRequired;
     if (exactCredits < 0.001) {
       aresCreditsRequired = 0; // Too small to charge (less than 0.001 credits)
     } else {
       aresCreditsRequired = Math.ceil(exactCredits); // Always round UP to nearest integer
     }
 
+    const cached = balanceCache.get(userId);
+    const now = Date.now();
+    if (cached && now - cached.timestamp < CACHE_TTL) {
+      const availableCredits = cached.credits - cached.pending;
+      if (availableCredits >= aresCreditsRequired) {
+        cached.pending += aresCreditsRequired;
+        cached.timestamp = now;
+        balanceCache.set(userId, cached);
+        cachePending(userId, aresCreditsRequired);
+        logger.debug('[checkAresBalance] Using cached ARES balance', {
+          userId,
+          cachedCredits: cached.credits,
+          requiredCredits: aresCreditsRequired,
+        });
+        return true;
+      }
+    }
+
     logger.debug('[checkAresBalance] Calling ARES user API for balance', { userId });
 
     // Get user's current ARES balance
-    const aresProfile = await callAresAPI(userId, 'user');
+    const aresProfile = await callAresAPI(userId, 'user', {
+      timeoutMs: PENDING_TTL,
+    });
     const currentCredits = aresProfile?.user?.credits || 0;
+    const cacheEntry = {
+      credits: currentCredits,
+      timestamp: now,
+      pending: 0,
+    };
 
     // Minimal ARES balance check logging
     const balanceStatus = currentCredits >= aresCreditsRequired ? 'PASS ✅' : 'FAIL ❌';
     logger.debug(`[ARES] Balance check: ${aresCreditsRequired} credits needed, ${currentCredits} available - ${balanceStatus}`);
 
     if (currentCredits >= aresCreditsRequired) {
+      cacheEntry.pending = aresCreditsRequired;
+      balanceCache.set(userId, cacheEntry);
+      cachePending(userId, aresCreditsRequired);
       return true;
     }
+    balanceCache.set(userId, cacheEntry);
 
     // Insufficient balance - log violation and throw error
     const type = ViolationTypes.TOKEN_BALANCE;
@@ -196,7 +266,7 @@ const checkAresBalance = async ({ req, res, txData }) => {
   } catch (error) {
     if (error.code === 'ARES_AUTH_REQUIRED') {
       logger.warn('[checkAresBalance] ARES authentication required', {
-        userId: txData.user,
+        userId,
       });
 
       // Throw a cleaner error that indicates auth is required (no auto-logout)
@@ -207,6 +277,26 @@ const checkAresBalance = async ({ req, res, txData }) => {
           code: 'ARES_AUTH_REQUIRED',
         }),
       );
+    }
+
+    if (error.code === 'ARES_TIMEOUT' && aresCreditsRequired >= 0) {
+      const cached = balanceCache.get(userId);
+      const now = Date.now();
+      if (cached && now - cached.timestamp < CACHE_TTL) {
+        const availableCredits = cached.credits - cached.pending;
+        if (availableCredits >= aresCreditsRequired) {
+          cached.pending += aresCreditsRequired;
+          cached.timestamp = now;
+          balanceCache.set(userId, cached);
+          cachePending(userId, aresCreditsRequired);
+          logger.warn('[checkAresBalance] Falling back to cached balance after timeout', {
+            userId,
+            cachedCredits: cached.credits,
+            requiredCredits: aresCreditsRequired,
+          });
+          return true;
+        }
+      }
     }
 
     logger.error('[checkAresBalance] Error checking ARES balance:', error);

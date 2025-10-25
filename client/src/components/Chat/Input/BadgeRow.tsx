@@ -12,7 +12,8 @@ import { Badge } from '@librechat/client';
 import { useRecoilValue, useRecoilCallback } from 'recoil';
 import type { LucideIcon } from 'lucide-react';
 import { BadgeRowProvider } from '~/Providers';
-import ToolsDropdown from './ToolsDropdown';
+// Temporarily disable tools dropdown in chat UI
+// import ToolsDropdown from './ToolsDropdown';
 import type { BadgeItem } from '~/common';
 import { useChatBadges } from '~/hooks';
 import ToolDialogs from './ToolDialogs';
@@ -320,7 +321,8 @@ function BadgeRow({
   return (
     <BadgeRowProvider conversationId={conversationId} isSubmitting={isSubmitting}>
       <div ref={containerRef} className="relative flex flex-wrap items-center gap-2">
-        {showEphemeralBadges === true && <ToolsDropdown />}
+        {/* Temporarily hide tools dropdown from chat UI */}
+        {/* {showEphemeralBadges === true && <ToolsDropdown />} */}
         {tempBadges.map((badge, index) => (
           <React.Fragment key={badge.id}>
             {dragState.draggedBadge && dragState.insertIndex === index && ghostBadge && (
