@@ -31,6 +31,7 @@ const {
   titleInstruction,
   createContextHandlers,
 } = require('./prompts');
+const { baseSystemPrompt } = require('./prompts/systemPrompt');
 const { extractBaseURL, getModelMaxTokens, getModelMaxOutputTokens } = require('~/utils');
 const { encodeAndFormat } = require('~/server/services/Files/images/encode');
 const { addSpaceIfNeeded, sleep } = require('~/server/utils');
@@ -93,6 +94,10 @@ class OpenAIClient extends BaseClient {
       this.modelOptions,
       this.options.modelOptions,
     );
+
+    if (typeof this.options.userSystemPrompt !== 'string') {
+      this.options.userSystemPrompt = '';
+    }
 
     this.defaultVisionModel = this.options.visionModel ?? 'gpt-4-vision-preview';
     if (typeof this.options.attachments?.then === 'function') {
@@ -372,7 +377,7 @@ class OpenAIClient extends BaseClient {
     return files;
   }
 
-  async buildMessages(messages, parentMessageId, { promptPrefix = null }, opts) {
+  async buildMessages(messages, parentMessageId, { promptPrefix: requestPromptPrefix = null }, opts) {
     let orderedMessages = this.constructor.getMessagesForConversation({
       messages,
       parentMessageId,
@@ -384,10 +389,22 @@ class OpenAIClient extends BaseClient {
     let tokenCountMap;
     let promptTokens;
 
-    promptPrefix = (promptPrefix || this.options.promptPrefix || '').trim();
+    const providedPromptPrefix = (requestPromptPrefix || this.options.promptPrefix || '').trim();
+    const userSystemPrompt = (this.options.userSystemPrompt || '').trim();
+    const basePrompt = baseSystemPrompt.trim();
+
+    let promptPrefixSegments = [basePrompt, userSystemPrompt, providedPromptPrefix].filter(
+      (segment) => typeof segment === 'string' && segment.length > 0,
+    );
+
     if (typeof this.options.artifactsPrompt === 'string' && this.options.artifactsPrompt) {
-      promptPrefix = `${promptPrefix ?? ''}\n${this.options.artifactsPrompt}`.trim();
+      const artifactsPrompt = this.options.artifactsPrompt.trim();
+      if (artifactsPrompt.length > 0) {
+        promptPrefixSegments = [...promptPrefixSegments, artifactsPrompt];
+      }
     }
+
+    let promptPrefix = promptPrefixSegments.join('\n\n');
 
     if (this.options.attachments) {
       const attachments = await this.options.attachments;

@@ -119,6 +119,11 @@ const initializeClient = async ({ req, res, endpointOption, optionsOnly, overrid
     customOptions.streamRate = allConfig.streamRate;
   }
 
+  const userSystemPrompt =
+    typeof req.user?.personalization?.systemPrompt === 'string'
+      ? req.user.personalization.systemPrompt
+      : '';
+
   let clientOptions = {
     reverseProxyUrl: baseURL ?? null,
     proxy: PROXY ?? null,
@@ -126,6 +131,7 @@ const initializeClient = async ({ req, res, endpointOption, optionsOnly, overrid
     res,
     ...customOptions,
     ...endpointOption,
+    userSystemPrompt,
   };
 
   if (optionsOnly) {

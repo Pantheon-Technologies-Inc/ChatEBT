@@ -72,12 +72,18 @@ const initializeClient = async ({ req, res, version, endpointOption, initAppClie
 
   const opts = {};
 
+  const userSystemPrompt =
+    typeof req.user?.personalization?.systemPrompt === 'string'
+      ? req.user.personalization.systemPrompt
+      : '';
+
   const clientOptions = {
     reverseProxyUrl: baseURL ?? null,
     proxy: PROXY ?? null,
     req,
     res,
     ...endpointOption,
+    userSystemPrompt,
   };
 
   /** @type {TAzureConfig | undefined} */

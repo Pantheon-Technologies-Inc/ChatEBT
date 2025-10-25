@@ -208,11 +208,27 @@ const initializeAgent = async ({
     agent.model_parameters.configuration = options.configOptions;
   }
 
-  if (agent.instructions && agent.instructions !== '') {
-    agent.instructions = replaceSpecialVars({
-      text: agent.instructions,
+  let formattedInstructions =
+    typeof agent.instructions === 'string' ? agent.instructions.trim() : '';
+
+  if (formattedInstructions) {
+    formattedInstructions = replaceSpecialVars({
+      text: formattedInstructions,
       user: req.user,
     });
+  }
+
+  const userSystemPrompt =
+    typeof req.user?.personalization?.systemPrompt === 'string'
+      ? req.user.personalization.systemPrompt.trim()
+      : '';
+
+  const instructionSegments = [userSystemPrompt, formattedInstructions].filter(
+    (segment) => typeof segment === 'string' && segment.length > 0,
+  );
+
+  if (instructionSegments.length > 0) {
+    agent.instructions = instructionSegments.join('\n\n');
   }
 
   if (typeof agent.artifacts === 'string' && agent.artifacts !== '') {

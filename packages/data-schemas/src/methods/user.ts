@@ -171,12 +171,12 @@ export function createUserMethods(mongoose: typeof import('mongoose')) {
   }
 
   /**
-   * Update a user's personalization memories setting.
-   * Handles the edge case where the personalization object doesn't exist.
+   * Update a user's personalization settings.
+   * Ensures the personalization object exists before updating nested fields.
    */
-  async function toggleUserMemories(
+  async function updateUserPersonalization(
     userId: string,
-    memoriesEnabled: boolean,
+    personalizationUpdates: { memories?: boolean; systemPrompt?: string },
   ): Promise<IUser | null> {
     const User = mongoose.models.User;
 
@@ -186,17 +186,37 @@ export function createUserMethods(mongoose: typeof import('mongoose')) {
       return null;
     }
 
+    const updateFields: Record<string, unknown> = {};
+    if (typeof personalizationUpdates?.memories === 'boolean') {
+      updateFields['personalization.memories'] = personalizationUpdates.memories;
+    }
+    if (typeof personalizationUpdates?.systemPrompt === 'string') {
+      updateFields['personalization.systemPrompt'] = personalizationUpdates.systemPrompt;
+    }
+
+    if (Object.keys(updateFields).length === 0) {
+      return user.toObject != null ? (user.toObject() as IUser) : (user as unknown as IUser);
+    }
+
     // Use $set to update the nested field, which will create the personalization object if it doesn't exist
     const updateOperation = {
-      $set: {
-        'personalization.memories': memoriesEnabled,
-      },
+      $set: updateFields,
     };
 
     return (await User.findByIdAndUpdate(userId, updateOperation, {
       new: true,
       runValidators: true,
     }).lean()) as IUser | null;
+  }
+
+  /**
+   * Backwards-compatible helper for toggling memories.
+   */
+  async function toggleUserMemories(
+    userId: string,
+    memoriesEnabled: boolean,
+  ): Promise<IUser | null> {
+    return updateUserPersonalization(userId, { memories: memoriesEnabled });
   }
 
   // Return all methods
@@ -208,6 +228,7 @@ export function createUserMethods(mongoose: typeof import('mongoose')) {
     getUserById,
     deleteUserById,
     generateToken,
+    updateUserPersonalization,
     toggleUserMemories,
   };
 }

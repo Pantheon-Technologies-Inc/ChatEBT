@@ -54,12 +54,18 @@ const initializeClient = async ({
   let apiKey = userProvidesKey ? userValues?.apiKey : credentials[endpoint];
   let baseURL = userProvidesURL ? userValues?.baseURL : baseURLOptions[endpoint];
 
+  const userSystemPrompt =
+    typeof req.user?.personalization?.systemPrompt === 'string'
+      ? req.user.personalization.systemPrompt
+      : '';
+
   let clientOptions = {
     contextStrategy,
     proxy: PROXY ?? null,
     debug: isEnabled(DEBUG_OPENAI),
     reverseProxyUrl: baseURL ? baseURL : null,
     ...endpointOption,
+    userSystemPrompt,
   };
 
   const isAzureOpenAI = endpoint === EModelEndpoint.azureOpenAI;

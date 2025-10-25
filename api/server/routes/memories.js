@@ -3,7 +3,7 @@ const { Tokenizer, generateCheckAccess } = require('@librechat/api');
 const { PermissionTypes, Permissions } = require('librechat-data-provider');
 const {
   getAllUserMemories,
-  toggleUserMemories,
+  updateUser,
   createMemory,
   deleteMemory,
   setMemory,
@@ -145,14 +145,38 @@ router.post('/', checkMemoryCreate, async (req, res) => {
  * Returns 200 and { updated: true, preferences: { memories: boolean } } when successful.
  */
 router.patch('/preferences', checkMemoryOptOut, async (req, res) => {
-  const { memories } = req.body;
+  const { memories, systemPrompt } = req.body ?? {};
 
-  if (typeof memories !== 'boolean') {
+  if (memories !== undefined && typeof memories !== 'boolean') {
     return res.status(400).json({ error: 'memories must be a boolean value.' });
   }
 
+  if (systemPrompt !== undefined && typeof systemPrompt !== 'string') {
+    return res.status(400).json({ error: 'systemPrompt must be a string.' });
+  }
+
+  if (memories === undefined && systemPrompt === undefined) {
+    return res.status(400).json({ error: 'No personalization updates provided.' });
+  }
+
+  const personalizationUpdates = {};
+  if (typeof memories === 'boolean') {
+    personalizationUpdates.memories = memories;
+  }
+  if (typeof systemPrompt === 'string') {
+    personalizationUpdates.systemPrompt = systemPrompt.trim();
+  }
+
   try {
-    const updatedUser = await toggleUserMemories(req.user.id, memories);
+    const updatePayload = {};
+    if ('memories' in personalizationUpdates) {
+      updatePayload['personalization.memories'] = personalizationUpdates.memories;
+    }
+    if ('systemPrompt' in personalizationUpdates) {
+      updatePayload['personalization.systemPrompt'] = personalizationUpdates.systemPrompt;
+    }
+
+    const updatedUser = await updateUser(req.user.id, updatePayload);
 
     if (!updatedUser) {
       return res.status(404).json({ error: 'User not found.' });
@@ -162,6 +186,7 @@ router.patch('/preferences', checkMemoryOptOut, async (req, res) => {
       updated: true,
       preferences: {
         memories: updatedUser.personalization?.memories ?? true,
+        systemPrompt: updatedUser.personalization?.systemPrompt ?? '',
       },
     });
   } catch (error) {

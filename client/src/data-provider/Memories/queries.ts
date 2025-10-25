@@ -46,10 +46,10 @@ export const useUpdateMemoryMutation = (
   );
 };
 
-export type UpdateMemoryPreferencesParams = { memories: boolean };
+export type UpdateMemoryPreferencesParams = { memories?: boolean; systemPrompt?: string };
 export type UpdateMemoryPreferencesResponse = {
   updated: boolean;
-  preferences: { memories: boolean };
+  preferences: { memories: boolean; systemPrompt?: string };
 };
 
 export const useUpdateMemoryPreferencesMutation = (

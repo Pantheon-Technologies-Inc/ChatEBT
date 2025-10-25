@@ -135,6 +135,11 @@ const userSchema = new Schema<IUser>(
           type: Boolean,
           default: true,
         },
+        systemPrompt: {
+          type: String,
+          default: '',
+          trim: true,
+        },
       },
       default: {},
     },

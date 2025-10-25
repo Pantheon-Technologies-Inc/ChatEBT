@@ -190,6 +190,7 @@ export type TUser = {
   backupCodes?: TBackupCode[];
   personalization?: {
     memories?: boolean;
+    systemPrompt?: string;
   };
   createdAt: string;
   updatedAt: string;

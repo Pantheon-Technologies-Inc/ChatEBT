@@ -847,8 +847,9 @@ export const updateMemory = (
 };
 
 export const updateMemoryPreferences = (preferences: {
-  memories: boolean;
-}): Promise<{ updated: boolean; preferences: { memories: boolean } }> => {
+  memories?: boolean;
+  systemPrompt?: string;
+}): Promise<{ updated: boolean; preferences: { memories: boolean; systemPrompt?: string } }> => {
   return request.patch(endpoints.memoryPreferences(), preferences);
 };
 
