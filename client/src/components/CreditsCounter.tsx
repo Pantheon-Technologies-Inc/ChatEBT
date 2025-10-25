@@ -1,7 +1,7 @@
-import { Progress, Skeleton } from '@librechat/client';
+import { Skeleton } from '@librechat/client';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { cn } from '~/utils';
-import { useAuthContext } from '~/hooks';
+import { useAuthContext, useLocalize } from '~/hooks';
 
 // Create a custom event name for credit updates
 export const CREDITS_UPDATED_EVENT = 'credits-updated';
@@ -30,12 +30,12 @@ const getCachedCreditsForUser = (userId: string | number | undefined | null) => 
   }
 };
 
-interface FreeCounterProps {
-  generationsUsed?: number;
-  isPro?: boolean;
+interface CreditsCounterProps {
+  className?: string;
 }
 
-const CreditsCounter = ({}: FreeCounterProps) => {
+const CreditsCounter = ({ className }: CreditsCounterProps) => {
+  const localize = useLocalize();
   const { user, isAuthenticated, token } = useAuthContext();
   const initialCachedCredits =
     user?.id != null ? getCachedCreditsForUser(user.id) : undefined;
@@ -48,7 +48,6 @@ const CreditsCounter = ({}: FreeCounterProps) => {
   const [isLoading, setIsLoading] = useState(
     () => Boolean(user?.id) && initialCachedCredits === undefined,
   );
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [authError, setAuthError] = useState<boolean>(false);
   const [lastAuthErrorTime, setLastAuthErrorTime] = useState<number>(0);
@@ -220,20 +219,8 @@ const CreditsCounter = ({}: FreeCounterProps) => {
     };
   }, [user?.id, isAuthenticated, token, authError, fetchCredits]);
 
-  const redirectToCustomerPortal = async () => {
-    setLoading(true);
-    try {
-      window.open('https://joinares.com/pricing', '_blank');
-    } catch (error) {
-      if (error) {
-        console.error('Error redirecting to customer portal:', error);
-      }
-    }
-    setLoading(false);
-  };
-
-  const maxGens = 25;
-  const safeCredits = credits ?? 0;
+  const safeCredits = Math.max(0, credits ?? 0);
+  const baseStackClass = cn('flex flex-col gap-2 text-[#ffc772]', className);
 
   // If not authenticated, no user, or no token, don't render anything
   if (!isAuthenticated || !user || !token) {
@@ -243,43 +230,34 @@ const CreditsCounter = ({}: FreeCounterProps) => {
   // Show error state if there's an error
   if (error && !isLoading) {
     return (
-      <div className="flex flex-col px-3">
-        <div className="mb-1 text-right text-sm text-red-500">Error loading credits</div>
-        <Progress value={0} className="opacity-50" />
+      <div className={baseStackClass}>
+        <div className="text-sm text-red-500">{localize('com_nav_credits_error')}</div>
       </div>
     );
   }
 
   if (isLoading || credits === null) {
     return (
-      <div className="flex flex-col px-3">
-        <Skeleton className="my-1 ml-auto h-3 w-[30%] rounded-lg" />
-        <Skeleton className="h-2 w-full rounded-full" />
+      <div className={baseStackClass}>
+        <Skeleton className="h-4 w-24 rounded-lg bg-[#ffc772]/20" />
+        <Skeleton className="h-2 w-full rounded-full bg-[#ffc772]/10" />
       </div>
     );
   }
 
   return (
-    <div className={cn('px-3', safeCredits > 25 && '')}>
-      <div className="shadow-inner">
-        <div className="py-">
-          <div className="mb- space-y-1 text-right font-rajdhani text-sm font-normal tracking-wider text-[#ffc772] sm:text-base">
-            <div className="flex items-center justify-end">
-              <p className="font-rajdhani font-medium">{safeCredits} Credits Left</p>
-              <button
-                className="ml-2 flex h-4 w-4 items-center justify-center rounded-full border border-[#ffc772] text-base transition-all sm:h-5 sm:w-5 sm:text-lg"
-                disabled={loading}
-                onClick={redirectToCustomerPortal}
-                aria-label="Add more credits"
-              >
-                <span className="inline-flex h-full items-center justify-center">+</span>
-              </button>
-            </div>
-
-            <Progress value={(safeCredits / maxGens) * 100} />
-          </div>
-        </div>
+    <div className={cn('flex flex-col gap-2.5 text-left text-[#ffc772]', className)}>
+      <div className="flex flex-col gap-1">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.3em]">
+          {localize('com_nav_credits_available_label')}
+        </p>
+        <p className="text-3xl font-semibold tracking-tight leading-tight sm:text-4xl">
+          {new Intl.NumberFormat().format(Math.round(safeCredits))}
+        </p>
       </div>
+      <p className="text-[11px] leading-relaxed text-[#ffc772]/80">
+        {localize('com_nav_credits_refresh_note')}
+      </p>
     </div>
   );
 };

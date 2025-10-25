@@ -7,14 +7,21 @@ import {
   HoverCardContent,
 } from '@librechat/client';
 import { useLocalize } from '~/hooks';
+import { cn } from '~/utils';
 
-const HoverCardSettings = ({ side, text }) => {
+interface HoverCardSettingsProps {
+  side: React.ComponentProps<typeof HoverCardContent>['side'];
+  text: string;
+  iconClassName?: string;
+}
+
+const HoverCardSettings = ({ side, text, iconClassName }: HoverCardSettingsProps) => {
   const localize = useLocalize();
 
   return (
     <HoverCard openDelay={500}>
       <HoverCardTrigger>
-        <CircleHelpIcon className="h-5 w-5 text-text-tertiary" />{' '}
+        <CircleHelpIcon className={cn('h-5 w-5 text-text-tertiary', iconClassName)} />{' '}
       </HoverCardTrigger>
       <HoverCardPortal>
         <HoverCardContent side={side} className="z-[999] w-80">
