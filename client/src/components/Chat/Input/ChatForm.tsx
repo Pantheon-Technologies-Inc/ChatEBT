@@ -191,15 +191,30 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
   }, [backupBadges, setBadges, setIsEditingBadges]);
 
   const isMoreThanThreeRows = visualRowCount > 3;
-
-  const baseClasses = useMemo(
+  const isNewConversation = useMemo(
     () =>
-      cn(
-        'md:py-3.5 m-0 w-full resize-none py-[13px] placeholder-black/50 bg-transparent dark:placeholder-white/50 [&:has(textarea:focus)]:shadow-[0_2px_6px_rgba(0,0,0,.05)]',
-        isCollapsed ? 'max-h-[52px]' : 'max-h-[45vh] md:max-h-[55vh]',
-        isMoreThanThreeRows ? 'pl-5' : 'px-5',
-      ),
-    [isCollapsed, isMoreThanThreeRows],
+      (conversation?.messages?.length ?? 0) === 0 &&
+      (conversationId == null || conversationId === Constants.NEW_CONVO),
+    [conversation?.messages?.length, conversationId],
+  );
+  const showLandingInput = isNewConversation;
+  const shouldExtendLandingInput = showLandingInput && visualRowCount > 1;
+
+  const textareaClasses = useMemo(
+    () =>
+      showLandingInput
+        ? cn(
+            'm-0 w-full flex-1 resize-none border-none bg-transparent px-0 py-2 text-base leading-[1.35] placeholder:text-white/20 focus:outline-none focus-visible:outline-none sm:text-lg',
+            'min-h-[40px] overflow-y-auto text-white',
+            isRTL ? 'text-right' : 'text-left',
+          )
+        : cn(
+            'md:py-3.5 m-0 w-full resize-none bg-transparent py-[13px] placeholder-black/50 dark:placeholder-white/50 [&:has(textarea:focus)]:shadow-[0_2px_6px_rgba(0,0,0,.05)]',
+            'min-h-[44px] overflow-y-auto',
+            isCollapsed ? 'max-h-[52px]' : 'max-h-[45vh] md:max-h-[55vh]',
+            isMoreThanThreeRows ? 'pl-5' : 'px-5',
+          ),
+    [showLandingInput, isRTL, isCollapsed, isMoreThanThreeRows],
   );
 
   return (
@@ -207,7 +222,11 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
       onSubmit={methods.handleSubmit(submitMessage)}
       className={cn(
         'mx-auto flex w-full flex-row gap-3 transition-[max-width] duration-300 sm:px-2',
-        maximizeChatSpace ? 'max-w-full' : 'md:max-w-3xl xl:max-w-4xl',
+        maximizeChatSpace
+          ? 'max-w-full'
+          : showLandingInput
+            ? 'max-w-lg sm:max-w-xl md:max-w-2xl'
+            : 'md:max-w-3xl xl:max-w-4xl',
         centerFormOnLanding &&
           (conversationId == null || conversationId === Constants.NEW_CONVO) &&
           !isSubmitting &&
@@ -239,11 +258,26 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
           <div
             onClick={handleContainerClick}
             className={cn(
-              'relative flex w-full flex-grow flex-col overflow-hidden rounded-t-3xl border pb-4 text-text-primary transition-all duration-200 sm:rounded-3xl sm:pb-0',
-              isTextAreaFocused ? 'shadow-lg' : 'shadow-md',
+              'relative flex w-full flex-grow flex-col overflow-hidden text-text-primary transition-all duration-200',
+              showLandingInput
+                ? shouldExtendLandingInput
+                  ? 'rounded-3xl px-4 py-2 sm:rounded-3xl sm:px-6 sm:py-3'
+                  : 'rounded-full px-4 py-1.5 sm:rounded-full sm:px-6 sm:py-2'
+                : 'rounded-t-3xl border pb-4 sm:rounded-3xl sm:pb-0',
+              showLandingInput
+                ? isTextAreaFocused
+                  ? 'shadow-[0_20px_60px_rgba(15,15,15,0.6)]'
+                  : 'shadow-[0_14px_48px_rgba(15,15,15,0.45)]'
+                : isTextAreaFocused
+                  ? 'shadow-lg'
+                  : 'shadow-md',
               isTemporary
-                ? 'border-violet-800/60 bg-violet-950/10'
-                : 'border-border-light bg-surface-chat',
+                ? showLandingInput
+                  ? 'bg-violet-950/20'
+                  : 'border-violet-800/60 bg-violet-950/10'
+                : showLandingInput
+                  ? 'bg-white/10'
+                  : 'border-border-light bg-surface-chat',
             )}
           >
             <TextareaHeader addedConvo={addedConvo} setAddedConvo={setAddedConvo} />
@@ -255,7 +289,27 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
             />
             <FileFormChat disableInputs={disableInputs} />
             {endpoint && (
-              <div className={cn('flex', isRTL ? 'flex-row-reverse' : 'flex-row')}>
+              <div
+                className={cn(
+                  'flex',
+                  isRTL ? 'flex-row-reverse' : 'flex-row',
+                  showLandingInput
+                    ? shouldExtendLandingInput
+                      ? 'items-start gap-3 pt-2'
+                      : 'items-center gap-3'
+                    : undefined,
+                )}
+              >
+                {showLandingInput && (
+                  <div
+                    className={cn(
+                      'flex flex-shrink-0 items-center transform',
+                      isRTL ? 'pl-1 sm:pl-2 translate-x-[5px]' : '-translate-x-[5px] pr-1 sm:pr-2',
+                    )}
+                  >
+                    <AttachFileChat disableInputs={disableInputs} />
+                  </div>
+                )}
                 <TextareaAutosize
                   {...registerProps}
                   ref={(e) => {
@@ -269,73 +323,104 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
                   onCompositionStart={handleCompositionStart}
                   onCompositionEnd={handleCompositionEnd}
                   id={mainTextareaId}
+                  placeholder={showLandingInput ? 'Ask anything' : undefined}
                   tabIndex={0}
                   data-testid="text-input"
                   rows={1}
+                  minRows={1}
                   onFocus={() => {
                     handleFocusOrClick();
                     setIsTextAreaFocused(true);
                   }}
                   onBlur={setIsTextAreaFocused.bind(null, false)}
                   onClick={handleFocusOrClick}
-                  style={{ height: 44, overflowY: 'auto' }}
                   className={cn(
-                    baseClasses,
+                    textareaClasses,
                     removeFocusRings,
                     'transition-[max-height] duration-200 disabled:cursor-not-allowed',
+                    showLandingInput ? 'px-0 sm:px-1' : undefined,
                   )}
                 />
-                <div className="flex flex-col items-start justify-start pt-1.5">
-                  <CollapseChat
-                    isCollapsed={isCollapsed}
-                    isScrollable={isMoreThanThreeRows}
-                    setIsCollapsed={setIsCollapsed}
+                {showLandingInput ? (
+                  <div
+                    className={cn(
+                      'flex transform flex-shrink-0 items-center gap-2',
+                      isRTL ? 'mr-auto flex-row-reverse pl-2 -translate-x-[5px]' : 'ml-auto pr-1 translate-x-[5px]',
+                    )}
+                  >
+                    {SpeechToText && (
+                      <AudioRecorder
+                        methods={methods}
+                        ask={submitMessage}
+                        textAreaRef={textAreaRef}
+                        disabled={disableInputs || isNotAppendable}
+                        isSubmitting={isSubmitting}
+                      />
+                    )}
+                      <SendButton
+                        ref={submitButtonRef}
+                        control={methods.control}
+                        disabled={filesLoading || isSubmitting || disableInputs || isNotAppendable}
+                        className="size-10 p-2 !bg-[#0169cc] text-white shadow-[0_10px_28px_rgba(0,0,0,0.5)] hover:!bg-[#0169cc]/90 hover:shadow-[0_12px_32px_rgba(0,0,0,0.5)] focus-visible:!bg-[#0169cc]"
+                        iconClassName="text-white"
+                        iconSize={20}
+                      />
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-start justify-start pt-1.5">
+                    <CollapseChat
+                      isCollapsed={isCollapsed}
+                      isScrollable={isMoreThanThreeRows}
+                      setIsCollapsed={setIsCollapsed}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+            {!showLandingInput && (
+              <div
+                className={cn(
+                  'items-between ml-1 flex gap-1 pb-2',
+                  isRTL ? 'flex-row-reverse' : 'flex-row',
+                )}
+              >
+                <div className={`${isRTL ? 'mr-1' : 'ml-1'}`}>
+                  <AttachFileChat disableInputs={disableInputs} />
+                </div>
+                <BadgeRow
+                  showEphemeralBadges={!isAgentsEndpoint(endpoint) && !isAssistantsEndpoint(endpoint)}
+                  isSubmitting={isSubmitting || isSubmittingAdded}
+                  conversationId={conversationId}
+                  onChange={setBadges}
+                  isInChat={
+                    Array.isArray(conversation?.messages) && conversation.messages.length >= 1
+                  }
+                />
+                <div className="mx-auto flex" />
+                {SpeechToText && (
+                  <AudioRecorder
+                    methods={methods}
+                    ask={submitMessage}
+                    textAreaRef={textAreaRef}
+                    disabled={disableInputs || isNotAppendable}
+                    isSubmitting={isSubmitting}
                   />
+                )}
+                <div className={`${isRTL ? 'ml-2' : 'mr-2'}`}>
+                  {(isSubmitting || isSubmittingAdded) && (showStopButton || showStopAdded) ? (
+                    <StopButton stop={handleStopGenerating} setShowStopButton={setShowStopButton} />
+                  ) : (
+                    endpoint && (
+                      <SendButton
+                        ref={submitButtonRef}
+                        control={methods.control}
+                        disabled={filesLoading || isSubmitting || disableInputs || isNotAppendable}
+                      />
+                    )
+                  )}
                 </div>
               </div>
             )}
-            <div
-              className={cn(
-                'items-between ml-1 flex gap-1 pb-2',
-                isRTL ? 'flex-row-reverse' : 'flex-row',
-              )}
-            >
-              <div className={`${isRTL ? 'mr-1' : 'ml-1'}`}>
-                <AttachFileChat disableInputs={disableInputs} />
-              </div>
-              <BadgeRow
-                showEphemeralBadges={!isAgentsEndpoint(endpoint) && !isAssistantsEndpoint(endpoint)}
-                isSubmitting={isSubmitting || isSubmittingAdded}
-                conversationId={conversationId}
-                onChange={setBadges}
-                isInChat={
-                  Array.isArray(conversation?.messages) && conversation.messages.length >= 1
-                }
-              />
-              <div className="mx-auto flex" />
-              {SpeechToText && (
-                <AudioRecorder
-                  methods={methods}
-                  ask={submitMessage}
-                  textAreaRef={textAreaRef}
-                  disabled={disableInputs || isNotAppendable}
-                  isSubmitting={isSubmitting}
-                />
-              )}
-              <div className={`${isRTL ? 'ml-2' : 'mr-2'}`}>
-                {(isSubmitting || isSubmittingAdded) && (showStopButton || showStopAdded) ? (
-                  <StopButton stop={handleStopGenerating} setShowStopButton={setShowStopButton} />
-                ) : (
-                  endpoint && (
-                    <SendButton
-                      ref={submitButtonRef}
-                      control={methods.control}
-                      disabled={filesLoading || isSubmitting || disableInputs || isNotAppendable}
-                    />
-                  )
-                )}
-              </div>
-            </div>
             {TextToSpeech && automaticPlayback && <StreamAudio index={index} />}
           </div>
         </div>

@@ -86,7 +86,7 @@ function ChatView({ index = 0 }: { index?: number }) {
                   className={cn(
                     'flex flex-col',
                     isLandingPage
-                      ? 'flex-1 items-center justify-end sm:justify-center'
+                      ? 'flex-1 items-center justify-center gap-3 pt-2 sm:pt-6'
                       : 'h-full overflow-y-auto',
                   )}
                 >
@@ -94,7 +94,8 @@ function ChatView({ index = 0 }: { index?: number }) {
                   <div
                     className={cn(
                       'w-full',
-                      isLandingPage && 'max-w-3xl transition-all duration-200 xl:max-w-4xl',
+                      isLandingPage &&
+                        'max-w-lg transition-all duration-200 sm:max-w-xl md:max-w-2xl',
                     )}
                   >
                     <ChatForm index={index} />

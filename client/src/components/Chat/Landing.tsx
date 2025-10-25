@@ -78,13 +78,16 @@ export default function Landing({ centerFormOnLanding }: { centerFormOnLanding: 
       (_name?: string) => 'What are you working on?',
       (name?: string) => (name ? `Good to see you, ${name}` : 'Good to see you.'),
       (_name?: string) => 'Ready when you are.',
-      (name?: string) => (name ? `Hey, ${name}. Ready to dive in?` : 'Hey there. Ready to dive in?'),
+      (name?: string) =>
+        name ? `Hey, ${name}. Ready to dive in?` : 'Hey there. Ready to dive in?',
       (_name?: string) => 'Where should we begin?',
       (name?: string) => (name ? `How can I help, ${name}?` : 'How can I help?'),
     ];
 
     const randomGreeting = greetings[Math.floor(Math.random() * greetings.length)];
-    return randomGreeting(typeof user?.name === 'string' && user.name.trim().length > 0 ? user.name : undefined);
+    return randomGreeting(
+      typeof user?.name === 'string' && user.name.trim().length > 0 ? user.name : undefined,
+    );
   }, [startupConfig?.interface?.customWelcome, user?.name]);
 
   const handleLineCountChange = useCallback((count: number) => {
@@ -110,9 +113,9 @@ export default function Landing({ centerFormOnLanding }: { centerFormOnLanding: 
     }
 
     if (contentHeight > 200) {
-      margin = 'mb-16';
+      margin = 'mb-1';
     } else if (contentHeight > 150) {
-      margin = 'mb-12';
+      margin = 'mb-1';
     }
 
     return margin;
@@ -122,12 +125,10 @@ export default function Landing({ centerFormOnLanding }: { centerFormOnLanding: 
 
   return (
     <div
-      className={`flex h-full transform-gpu flex-col items-center justify-center pb-16 transition-all duration-200 ${centerFormOnLanding ? 'max-h-full sm:max-h-0' : 'max-h-full'} ${getDynamicMargin}`}
+      className={`flex h-full transform-gpu flex-col items-center justify-center pb-2 transition-all duration-200 sm:pb-4 ${centerFormOnLanding ? 'max-h-full sm:max-h-0' : 'max-h-full'} ${getDynamicMargin}`}
     >
       <div ref={contentRef} className="flex flex-col items-center gap-0 p-2">
-        <div
-          className="flex flex-col items-center justify-center gap-2"
-        >
+        <div className="flex flex-col items-center justify-center gap-2">
           {((isAgent || isAssistant) && name) || name ? (
             <div className="flex flex-col items-center gap-0 p-2">
               <SplitText
