@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import { useGetModelsQuery } from 'librechat-data-provider/react-query';
 import {
   Permissions,
-  alternateName,
   EModelEndpoint,
   PermissionTypes,
   isAgentsEndpoint,
@@ -128,9 +127,10 @@ export default function useMentions({
   const modelSpecs = useMemo(() => startupConfig?.modelSpecs?.list ?? [], [startupConfig]);
 
   const options: MentionOption[] = useMemo(() => {
-    let validEndpoints = endpoints;
+    // Restrict mention options to OpenAI chat models only
+    let validEndpoints = endpoints.filter((endpoint) => endpoint === EModelEndpoint.openAI);
     if (!includeAssistants) {
-      validEndpoints = endpoints.filter((endpoint) => !isAssistantsEndpoint(endpoint));
+      validEndpoints = validEndpoints.filter((endpoint) => !isAssistantsEndpoint(endpoint));
     }
 
     const modelOptions = validEndpoints.flatMap((endpoint) => {
@@ -157,60 +157,60 @@ export default function useMentions({
     });
 
     const mentions = [
-      ...(modelSpecs.length > 0 ? modelSpecs : []).map((modelSpec) => ({
-        value: modelSpec.name,
-        label: modelSpec.label,
-        description: modelSpec.description,
-        icon: EndpointIcon({
-          conversation: {
-            ...modelSpec.preset,
-            iconURL: modelSpec.iconURL,
-          },
-          endpointsConfig,
-          context: 'menu-item',
-          size: 20,
-        }),
-        type: 'modelSpec' as const,
-      })),
-      ...(interfaceConfig.modelSelect === true ? validEndpoints : []).map((endpoint) => ({
-        value: endpoint,
-        label: alternateName[endpoint as string] ?? endpoint ?? '',
-        type: 'endpoint' as const,
-        icon: EndpointIcon({
-          conversation: { endpoint },
-          endpointsConfig,
-          context: 'menu-item',
-          size: 20,
-        }),
-      })),
-      ...(interfaceConfig.modelSelect === true ? (agentsList ?? []) : []),
-      ...(endpointsConfig?.[EModelEndpoint.assistants] &&
-      includeAssistants &&
-      interfaceConfig.modelSelect === true
-        ? assistantListMap[EModelEndpoint.assistants] || []
-        : []),
-      ...(endpointsConfig?.[EModelEndpoint.azureAssistants] &&
-      includeAssistants &&
-      interfaceConfig.modelSelect === true
-        ? assistantListMap[EModelEndpoint.azureAssistants] || []
-        : []),
-      ...((interfaceConfig.modelSelect === true && interfaceConfig.presets === true
-        ? presets
-        : []
-      )?.map((preset, index) => ({
-        value: preset.presetId ?? `preset-${index}`,
-        label: preset.title ?? preset.modelLabel ?? preset.chatGptLabel ?? '',
-        description: getPresetTitle(preset, true),
-        icon: EndpointIcon({
-          conversation: preset,
-          containerClassName: 'shadow-stroke overflow-hidden rounded-full',
-          endpointsConfig: endpointsConfig,
-          context: 'menu-item',
-          assistantMap,
-          size: 20,
-        }),
-        type: 'preset' as const,
-      })) ?? []),
+      // ...(modelSpecs.length > 0 ? modelSpecs : []).map((modelSpec) => ({
+      //   value: modelSpec.name,
+      //   label: modelSpec.label,
+      //   description: modelSpec.description,
+      //   icon: EndpointIcon({
+      //     conversation: {
+      //       ...modelSpec.preset,
+      //       iconURL: modelSpec.iconURL,
+      //     },
+      //     endpointsConfig,
+      //     context: 'menu-item',
+      //     size: 20,
+      //   }),
+      //   type: 'modelSpec' as const,
+      // })),
+      // ...(interfaceConfig.modelSelect === true ? validEndpoints : []).map((endpoint) => ({
+      //   value: endpoint,
+      //   label: alternateName[endpoint as string] ?? endpoint ?? '',
+      //   type: 'endpoint' as const,
+      //   icon: EndpointIcon({
+      //     conversation: { endpoint },
+      //     endpointsConfig,
+      //     context: 'menu-item',
+      //     size: 20,
+      //   }),
+      // })),
+      // ...(interfaceConfig.modelSelect === true ? (agentsList ?? []) : []),
+      // ...(endpointsConfig?.[EModelEndpoint.assistants] &&
+      // includeAssistants &&
+      // interfaceConfig.modelSelect === true
+      //   ? assistantListMap[EModelEndpoint.assistants] || []
+      //   : []),
+      // ...(endpointsConfig?.[EModelEndpoint.azureAssistants] &&
+      // includeAssistants &&
+      // interfaceConfig.modelSelect === true
+      //   ? assistantListMap[EModelEndpoint.azureAssistants] || []
+      //   : []),
+      // ...((interfaceConfig.modelSelect === true && interfaceConfig.presets === true
+      //   ? presets
+      //   : []
+      // )?.map((preset, index) => ({
+      //   value: preset.presetId ?? `preset-${index}`,
+      //   label: preset.title ?? preset.modelLabel ?? preset.chatGptLabel ?? '',
+      //   description: getPresetTitle(preset, true),
+      //   icon: EndpointIcon({
+      //     conversation: preset,
+      //     containerClassName: 'shadow-stroke overflow-hidden rounded-full',
+      //     endpointsConfig: endpointsConfig,
+      //     context: 'menu-item',
+      //     assistantMap,
+      //     size: 20,
+      //   }),
+      //   type: 'preset' as const,
+      // })) ?? []),
       ...modelOptions,
     ];
 
