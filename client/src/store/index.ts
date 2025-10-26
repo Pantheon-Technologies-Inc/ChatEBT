@@ -11,6 +11,7 @@ import prompts from './prompts';
 import lang from './language';
 import settings from './settings';
 import misc from './misc';
+import onboarding from './onboarding';
 import isTemporary from './temporary';
 export * from './agents';
 
@@ -28,5 +29,6 @@ export default {
   ...lang,
   ...settings,
   ...misc,
+  ...onboarding,
   ...isTemporary,
 };

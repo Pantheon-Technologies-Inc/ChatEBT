@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useMemo, memo, lazy, Suspense, useRef } from 'react';
-import { useRecoilValue } from 'recoil';
+import { useRecoilValue, useSetRecoilState } from 'recoil';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useMediaQuery, NewChatIcon } from '@librechat/client';
@@ -14,6 +14,7 @@ import {
   useNavScrolling,
   useNewConvo,
 } from '~/hooks';
+import useChatGPTImportOnboarding from '~/hooks/useChatGPTImportOnboarding';
 import { useConversationsInfiniteQuery } from '~/data-provider';
 import { Conversations } from '~/components/Conversations';
 import SearchBar from './SearchBar';
@@ -67,6 +68,8 @@ const Nav = memo(
     const [newUser, setNewUser] = useLocalStorage('newUser', true);
     const [showLoading, setShowLoading] = useState(false);
     const [tags, setTags] = useState<string[]>([]);
+    const setConversationCount = useSetRecoilState(store.conversationCountAtom);
+    const { shouldShowTooltip } = useChatGPTImportOnboarding();
 
     const hasAccessToBookmarks = useHasAccess({
       permissionType: PermissionTypes.BOOKMARKS,
@@ -115,6 +118,33 @@ const Nav = memo(
     const conversations = useMemo(() => {
       return data ? data.pages.flatMap((page) => page.conversations) : [];
     }, [data]);
+
+    const totalConversationCount = useMemo(() => {
+      const ids = conversations
+        .map((conversation) => conversation?.conversationId)
+        .filter(
+          (conversationId): conversationId is string =>
+            typeof conversationId === 'string' && conversationId !== Constants.NEW_CONVO,
+        );
+
+      return new Set(ids).size;
+    }, [conversations]);
+
+    useEffect(() => {
+      if (!isAuthenticated) {
+        setConversationCount(null);
+        return;
+      }
+
+      if (!data) {
+        if (isLoading || isFetching) {
+          setConversationCount(null);
+        }
+        return;
+      }
+
+      setConversationCount(totalConversationCount);
+    }, [isAuthenticated, data, isFetching, isLoading, setConversationCount, totalConversationCount]);
 
     const toggleNavVisible = useCallback(() => {
       setNavVisible((prev: boolean) => {
@@ -259,7 +289,7 @@ const Nav = memo(
                       />
                     </div>
                     <Suspense fallback={null}>
-                      <AccountSettings />
+                      <AccountSettings showImportTooltip={shouldShowTooltip} />
                     </Suspense>
                   </nav>
                 </div>

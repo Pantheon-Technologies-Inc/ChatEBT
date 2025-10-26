@@ -10,6 +10,20 @@ import { useEffect, useState } from 'react';
 export default function useLocalStorage<T>(key: string, defaultValue: T): [T, (value: T) => void] {
   const [value, setValue] = useState(defaultValue);
 
+  const parseStoredValue = (rawValue: string | null): T => {
+    if (rawValue == null) {
+      return defaultValue;
+    }
+
+    try {
+      return JSON.parse(rawValue) as T;
+    } catch (error) {
+      console.warn(`Failed to parse localStorage value for key "${key}". Resetting to default.`, error);
+      localStorage.setItem(key, JSON.stringify(defaultValue));
+      return defaultValue;
+    }
+  };
+
   useEffect(() => {
     const item = localStorage.getItem(key);
 
@@ -17,7 +31,7 @@ export default function useLocalStorage<T>(key: string, defaultValue: T): [T, (v
       localStorage.setItem(key, JSON.stringify(defaultValue));
     }
 
-    setValue(item ? JSON.parse(item) : defaultValue);
+    setValue(parseStoredValue(item));
 
     function handler(e: StorageEvent) {
       if (e.key !== key) {
@@ -25,7 +39,7 @@ export default function useLocalStorage<T>(key: string, defaultValue: T): [T, (v
       }
 
       const lsi = localStorage.getItem(key);
-      setValue(JSON.parse(lsi ?? ''));
+      setValue(parseStoredValue(lsi));
     }
 
     window.addEventListener('storage', handler);
