@@ -19,7 +19,7 @@ const staticAtoms = {
 
 const localStorageAtoms = {
   // General settings
-  autoScroll: atomWithLocalStorage('autoScroll', false),
+  autoScroll: atomWithLocalStorage('autoScroll', true),
   hideSidePanel: atomWithLocalStorage('hideSidePanel', false),
   fontSize: atomWithLocalStorage('fontSize', 'text-base'),
   enableUserMsgMarkdown: atomWithLocalStorage<boolean>(

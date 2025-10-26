@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import { SettingsTabValues } from 'librechat-data-provider';
-import { MessageSquare, Command, DollarSign } from 'lucide-react';
+import { /* MessageSquare, */ Command, DollarSign } from 'lucide-react';
 import { Dialog, DialogPanel, DialogTitle, Transition, TransitionChild } from '@headlessui/react';
 import {
   GearIcon,
@@ -14,7 +14,7 @@ import {
 import type { TDialogProps } from '~/common';
 import {
   General,
-  Chat,
+  // Chat,
   Commands,
   Speech,
   Personalization,
@@ -38,7 +38,7 @@ export default function Settings({ open, onOpenChange }: TDialogProps) {
   const handleKeyDown = (event: React.KeyboardEvent) => {
     const tabs: SettingsTabValues[] = [
       SettingsTabValues.GENERAL,
-      SettingsTabValues.CHAT,
+      // SettingsTabValues.CHAT,
       SettingsTabValues.COMMANDS,
       SettingsTabValues.SPEECH,
       ...(hasAnyPersonalizationFeature ? [SettingsTabValues.PERSONALIZATION] : []),
@@ -78,11 +78,11 @@ export default function Settings({ open, onOpenChange }: TDialogProps) {
       icon: <GearIcon />,
       label: 'com_nav_setting_general',
     },
-    {
-      value: SettingsTabValues.CHAT,
-      icon: <MessageSquare className="icon-sm" />,
-      label: 'com_nav_setting_chat',
-    },
+    // {
+    //   value: SettingsTabValues.CHAT,
+    //   icon: <MessageSquare className="icon-sm" />,
+    //   label: 'com_nav_setting_chat',
+    // },
     {
       value: SettingsTabValues.COMMANDS,
       icon: <Command className="icon-sm" />,
@@ -223,9 +223,9 @@ export default function Settings({ open, onOpenChange }: TDialogProps) {
                     <Tabs.Content value={SettingsTabValues.GENERAL}>
                       <General />
                     </Tabs.Content>
-                    <Tabs.Content value={SettingsTabValues.CHAT}>
+                    {/* <Tabs.Content value={SettingsTabValues.CHAT}>
                       <Chat />
-                    </Tabs.Content>
+                    </Tabs.Content> */}
                     <Tabs.Content value={SettingsTabValues.COMMANDS}>
                       <Commands />
                     </Tabs.Content>
