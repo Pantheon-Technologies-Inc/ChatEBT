@@ -13,6 +13,86 @@ const { resolveStoragePath } = require('~/server/services/Files/utils');
 /** @type {Map<string, { vectorStoreId: string, uploadedFileIds: Set<string> }>} */
 const hostedVectorStoreCache = new Map();
 
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const getRetryDelay = (attempt) => Math.min(1000 * Math.pow(2, attempt - 1), 8000);
+
+const ensureLocalFileReadable = async (absolutePath) => {
+  try {
+    await fs.promises.access(absolutePath, fs.constants.R_OK);
+  } catch (error) {
+    const err = new Error(`File not readable at path: ${absolutePath}`);
+    err.cause = error;
+    throw err;
+  }
+};
+
+const createUploadStream = async (absoluteOrRemotePath) => {
+  if (/^https?:\/\//i.test(absoluteOrRemotePath)) {
+    const response = await axios({
+      method: 'get',
+      url: absoluteOrRemotePath,
+      responseType: 'stream',
+    });
+    return response.data;
+  }
+
+  await ensureLocalFileReadable(absoluteOrRemotePath);
+  return fs.createReadStream(absoluteOrRemotePath);
+};
+
+const uploadFileToHostedVectorStore = async ({
+  openai,
+  vectorStoreId,
+  file,
+  absoluteOrRemotePath,
+  cacheUploaded,
+  maxAttempts = 3,
+}) => {
+  let attempt = 0;
+  while (attempt < maxAttempts) {
+    attempt++;
+    try {
+      const stream = await createUploadStream(absoluteOrRemotePath);
+      const uploaded = await openai.files.create({
+        file: stream,
+        purpose: 'assistants',
+      });
+      const fileId = uploaded?.id;
+      if (!fileId) {
+        throw new Error('OpenAI file upload did not return an id');
+      }
+
+      await openai.vectorStores.files.createAndPoll(vectorStoreId, { file_id: fileId });
+
+      if (file?.file_id) {
+        cacheUploaded.add(file.file_id);
+      }
+
+      return;
+    } catch (error) {
+      if (attempt >= maxAttempts) {
+        throw error;
+      }
+
+      const delay = getRetryDelay(attempt);
+      try {
+        logger.warn('[Agents:file_search] Retrying file upload for hosted search', {
+          filename: file?.filename,
+          attempt,
+          delay,
+          error: error?.message,
+          status: error?.response?.status,
+        });
+      } catch (_) {
+        /* ignore */
+      }
+
+      await wait(delay);
+    }
+  }
+};
+
 /**
  *
  * @param {Object} options
@@ -109,8 +189,8 @@ const createFileSearchTool = async ({ req, files, entity_id }) => {
             filesCount: files.length,
           });
         } catch (_) {
-        /* ignore */
-      }
+          /* ignore */
+        }
 
       try {
         const fileIds = files.map((f) => f.file_id);
@@ -194,10 +274,19 @@ const createFileSearchTool = async ({ req, files, entity_id }) => {
               continue;
             }
 
+            if (file?.file_id && cacheUploaded.has(file.file_id)) {
+              logger.debug('[Agents:file_search] Skipping already uploaded file', {
+                filename: file?.filename,
+                fileId: file?.file_id,
+              });
+              continue;
+            }
+
             const absoluteOrRemotePath = resolveStoragePath({
               req,
               filepath: file?.filepath,
             });
+
             if (!absoluteOrRemotePath) {
               logger.warn(
                 '[Agents:file_search] Unable to resolve hosted file path for upload',
@@ -210,40 +299,18 @@ const createFileSearchTool = async ({ req, files, entity_id }) => {
               continue;
             }
 
-            if (file?.file_id && cacheUploaded.has(file.file_id)) {
-              logger.debug('[Agents:file_search] Skipping already uploaded file', {
-                filename: file?.filename,
-                fileId: file?.file_id,
-              });
-              continue;
-            }
-
-            let stream;
-            if (/^https?:\/\//i.test(absoluteOrRemotePath)) {
-              const response = await axios({
-                method: 'get',
-                url: absoluteOrRemotePath,
-                responseType: 'stream',
-              });
-              stream = response.data;
-            } else {
-              stream = fs.createReadStream(absoluteOrRemotePath);
-            }
-
-            const uploaded = await openai.files.create({
-              file: stream,
-              purpose: 'assistants',
+            await uploadFileToHostedVectorStore({
+              openai,
+              vectorStoreId,
+              file,
+              absoluteOrRemotePath,
+              cacheUploaded,
             });
-            const fileId = uploaded?.id;
-            if (!fileId) continue;
-            await openai.vectorStores.files.createAndPoll(vectorStoreId, { file_id: fileId });
-            if (file?.file_id) {
-              cacheUploaded.add(file.file_id);
-            }
           } catch (e) {
             logger.warn('[Agents:file_search] Skipped file during upload/attach', {
               filename: file?.filename,
               error: e?.message,
+              status: e?.response?.status,
             });
           }
         }

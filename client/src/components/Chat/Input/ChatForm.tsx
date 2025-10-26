@@ -145,7 +145,8 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
     [conversation?.messages?.length, conversationId],
   );
   const showLandingInput = isNewConversation;
-  const shouldExtendLandingInput = showLandingInput && visualRowCount > 1;
+  const hasAttachments = (files?.size ?? 0) > 0;
+  const shouldExtendLandingInput = showLandingInput && (visualRowCount > 1 || hasAttachments);
   const {
     isNotAppendable,
     handlePaste,
