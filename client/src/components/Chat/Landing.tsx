@@ -113,9 +113,9 @@ export default function Landing({ centerFormOnLanding }: { centerFormOnLanding: 
     }
 
     if (contentHeight > 200) {
-      margin = 'mb-4';
+      margin = 'mb-6';
     } else if (contentHeight > 150) {
-      margin = 'mb-4';
+      margin = 'mb-6';
     }
 
     return margin;
